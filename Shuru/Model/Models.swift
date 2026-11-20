@@ -104,11 +104,23 @@ enum TriggerKind: String, Codable, CaseIterable, Identifiable {
     }
 }
 
+/// A spot on the map for "When I get home" routines.
+struct SavedPlace: Codable, Hashable {
+    var latitude: Double
+    var longitude: Double
+    var radius: Double = 150
+}
+
 struct Trigger: Codable, Hashable {
     var kind: TriggerKind = .time
     var text: String = ""
     var hour: Int = 19
     var minute: Int = 0
+    /// For .place: where to notice you arriving. nil = start it yourself.
+    var place: SavedPlace? = nil
+
+    /// Cue-based routines (place, after, feeling, app) wait until the cue happens.
+    var isCue: Bool { kind != .time }
 
     var label: String {
         if kind == .time { return "At " + Day.clock(hour: hour, minute: minute) }
@@ -354,6 +366,8 @@ struct AppData: Codable {
     var templates: [Routine] = []
     /// Built-in templates you removed.
     var hiddenTemplates: Set<String> = []
+    /// "r:<id>@<day>" -> when a cue routine was started (you arrived, or tapped Start)
+    var started: [String: Date] = [:]
 }
 
 extension AppData {

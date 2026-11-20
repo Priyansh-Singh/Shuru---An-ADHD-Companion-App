@@ -29,6 +29,8 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
     func application(_ application: UIApplication,
                      didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
         UNUserNotificationCenter.current().delegate = self
+        // Created at launch so iOS can hand over "you arrived" events, even when it wakes the app in the background.
+        _ = Places.shared
         return true
     }
 

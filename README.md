@@ -12,6 +12,7 @@ Instead of a long list, the main screen shows **one next thing** over a slowly m
 
 - **Now**: just the next step. Press and hold to finish it: a circle fills (fast at first, slower near the edge), bounces once, and a tick appears with sparkles. Tap for options: make it smaller, start a 5-minute timer, not now, pick one for me.
 - **Routines**: if–then chains with time limits per step ("at least 2 min, stop by 3 h"), the days they run on, and a backup plan.
+  Routines with a cue ("When I get home") wait until it happens: save a location and Shuru starts them when you arrive, or tap Start, or run them from a Shortcut (`shuru://start?routine=<id>`).
 - **Calendar**: a week strip. Past days show what you actually did; future days show what's planned. Unfinished tasks roll over to today.
 - **Hours**: your waking day as blocks, so time is visible. Log what each hour went to; tasks you start or finish fill it in automatically.
 - **Brain dump**: get it out of your head, sort it later.

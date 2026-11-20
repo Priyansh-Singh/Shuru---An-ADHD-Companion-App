@@ -137,6 +137,7 @@ final class AppStore: ObservableObject {
         let work = DispatchWorkItem { [weak self] in
             self?.saveNow()
             Notifications.reschedule(for: self?.data)
+            if let routines = self?.data.routines { Places.shared.sync(routines: routines) }
         }
         saveWork = work
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.6, execute: work)
@@ -153,6 +154,7 @@ final class AppStore: ObservableObject {
         normalizeTokens()
         Notifications.requestIfNeeded()
         Notifications.reschedule(for: data)
+        Places.shared.sync(routines: data.routines)
         if let t = timer, Date() > t.end.addingTimeInterval(3600) { timer = nil }
     }
 
@@ -160,6 +162,12 @@ final class AppStore: ObservableObject {
         guard url.scheme == "shuru" else { return }
         switch url.host ?? "" {
         case "pause": requestPause()
+        case "start":
+            let items = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
+            if let raw = items.first(where: { $0.name == "routine" })?.value, let id = UUID(uuidString: raw) {
+                cueHappened(routineID: id, announce: false)
+            }
+            go(to: .now)
         case "hours": go(to: .hours)
         case "calendar": go(to: .calendar)
         case "dump": go(to: .dump)
@@ -291,9 +299,15 @@ final class AppStore: ObservableObject {
             guard idx < r.steps.count else { continue }
             let item = NowItem(kind: .routine, refID: r.id, day: day, stepIndex: idx, stepCount: r.steps.count,
                                step: r.steps[idx], triggerLabel: r.trigger.label, rolledFrom: nil)
-            let timed = r.trigger.kind == .time
-            let bucket = timed ? (r.trigger.minutesOfDay <= nowMinutes ? 0 : 2) : 1
-            entries.append((item, bucket, timed ? r.trigger.minutesOfDay : 0, order))
+            if r.trigger.isCue {
+                // Waits for its cue: arriving somewhere, a Start tap, or a Shortcut.
+                guard let at = data.started[base] else { continue }
+                let c = Day.calendar.dateComponents([.hour, .minute], from: at)
+                entries.append((item, 0, (c.hour ?? 0) * 60 + (c.minute ?? 0), order))
+            } else {
+                let bucket = r.trigger.minutesOfDay <= nowMinutes ? 0 : 2
+                entries.append((item, bucket, r.trigger.minutesOfDay, order))
+            }
             order += 1
         }
 
@@ -486,6 +500,36 @@ final class AppStore: ObservableObject {
 
     func setEnabled(_ id: UUID, _ on: Bool) {
         if let i = data.routines.firstIndex(where: { $0.id == id }) { data.routines[i].enabled = on }
+    }
+
+    // MARK: Cue routines
+
+    func hasStarted(_ r: Routine, day: String = Day.today) -> Bool {
+        let base = "r:" + r.id.uuidString + "@" + day
+        return data.started[base] != nil || (data.progress[base] ?? 0) > 0
+    }
+
+    /// Cue routines running today that haven't started yet.
+    func waitingRoutines(day: String = Day.today) -> [Routine] {
+        routines(on: day).filter { $0.trigger.isCue && !hasStarted($0, day: day) && !$0.steps.isEmpty }
+    }
+
+    /// The cue happened: arrived home, tapped Start, or a Shortcut ran.
+    func cueHappened(routineID: UUID, announce: Bool) {
+        let day = Day.today
+        guard let r = data.routines.first(where: { $0.id == routineID }),
+              r.enabled, r.runs(on: day), !r.steps.isEmpty, !hasStarted(r, day: day) else { return }
+        let base = "r:" + r.id.uuidString + "@" + day
+        data.started[base] = Date()
+        data.notNow[day]?.removeAll { $0 == base }
+        if announce {
+            Notifications.announce(id: r.id.uuidString, title: r.trigger.label,
+                                   body: "First: " + r.steps[0].title + (r.steps.count > 1 ? " (1 of \(r.steps.count))" : ""))
+        }
+    }
+
+    func startLink(for routine: Routine) -> String {
+        "shuru://start?routine=" + routine.id.uuidString
     }
 
     // MARK: Templates

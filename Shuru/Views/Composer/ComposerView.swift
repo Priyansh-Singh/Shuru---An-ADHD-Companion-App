@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 /// What to open the composer with.
 struct ComposerRequest: Identifiable {
@@ -64,6 +65,7 @@ struct ComposerView: View {
     @State private var newTypeName = ""
     @State private var confirmDelete = false
     @State private var savedTemplate = false
+    @State private var copiedLink = false
     @FocusState private var focusedStep: UUID?
 
     private var editing: Bool { !request.prefill && (request.task != nil || request.routine != nil) }
@@ -200,10 +202,28 @@ struct ComposerView: View {
                 } else {
                     TextField(trigger.kind.placeholder, text: $trigger.text)
                 }
+                if trigger.kind == .place {
+                    PlacePicker(place: $trigger.place)
+                }
             } header: {
                 Text("If…")
             } footer: {
-                Text(trigger.kind == .time ? "You’ll get a reminder at this time." : "Write it the way you’d say it, like “When I get home”.")
+                Text(whenFooter)
+            }
+
+            if trigger.isCue, let r = request.routine, !request.prefill, !request.asTemplate {
+                Section {
+                    Button {
+                        UIPasteboard.general.string = store.startLink(for: r)
+                        withAnimation { copiedLink = true }
+                    } label: {
+                        Label(copiedLink ? "Link copied" : "Copy start link", systemImage: copiedLink ? "checkmark" : "link")
+                    }
+                } header: {
+                    Text("Start it from a Shortcut")
+                } footer: {
+                    Text("In Shortcuts, make an automation (for example “When I arrive home” or “When I connect to my Wi-Fi”) that opens this link. The routine starts and shows up on Now.")
+                }
             }
         }
     }
@@ -222,6 +242,19 @@ struct ComposerView: View {
         }
         .onChange(of: mode) { _, m in
             if m == .routine && repeatChoice == .once { repeatChoice = .everyDay }
+        }
+    }
+
+    private var whenFooter: String {
+        switch trigger.kind {
+        case .time:
+            return "You’ll get a reminder at this time."
+        case .place:
+            return trigger.place == nil
+                ? "Save a location and Shuru starts this when you arrive. Or skip it and tap Start on Now or in Calendar when you get there."
+                : "Shuru starts this when you arrive, and sends a notification. Your location stays on your phone."
+        default:
+            return "This waits until you start it: tap Start on Now or in Calendar when it happens, or use a Shortcut."
         }
     }
 
@@ -479,5 +512,55 @@ struct DaysPicker: View {
             }
         }
         .padding(.vertical, 4)
+    }
+}
+
+// MARK: - Place
+
+struct PlacePicker: View {
+    @Binding var place: SavedPlace?
+    @State private var locating = false
+    @State private var problem: String?
+
+    private let radii: [Double] = [100, 150, 300, 500]
+
+    var body: some View {
+        if let p = place {
+            HStack {
+                Label("Location saved", systemImage: "mappin.circle.fill")
+                Spacer()
+                Text(String(format: "%.4f, %.4f", p.latitude, p.longitude))
+                    .font(.system(size: 12).monospacedDigit())
+                    .foregroundStyle(.secondary)
+            }
+            Picker("Counts as arrived within", selection: Binding(get: { p.radius }, set: { place?.radius = $0 })) {
+                ForEach(radii, id: \.self) { r in Text("\(Int(r)) m").tag(r) }
+            }
+            Button(locating ? "Finding you…" : "Update to where I am now", action: locate)
+                .disabled(locating)
+            Button("Remove location", role: .destructive) { place = nil }
+        } else {
+            Button(action: locate) {
+                Label(locating ? "Finding you…" : "Use my current location", systemImage: "location")
+            }
+            .disabled(locating)
+        }
+        if let problem {
+            Text(problem).font(.system(size: 13)).foregroundStyle(Theme.danger)
+        }
+    }
+
+    private func locate() {
+        locating = true
+        problem = nil
+        Places.shared.requestCurrentLocation { loc in
+            locating = false
+            guard let loc else {
+                problem = "Couldn’t get your location. Allow location for Shuru in Settings › Privacy › Location Services."
+                return
+            }
+            place = SavedPlace(latitude: loc.coordinate.latitude, longitude: loc.coordinate.longitude, radius: place?.radius ?? 150)
+            Places.shared.askForAlways()
+        }
     }
 }

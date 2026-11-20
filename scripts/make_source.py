@@ -7,8 +7,10 @@ build number (the workflow run number), so SideStore sees it as an update.
 import datetime
 import json
 import os
+import plistlib
 import re
 import sys
+import zipfile
 
 repo = os.environ["GITHUB_REPOSITORY"]
 build = os.environ["BUILD_NUMBER"]
@@ -22,6 +24,14 @@ if not version:
     with open("project.yml", encoding="utf-8") as f:
         m = re.search(r'MARKETING_VERSION:\s*"?([0-9]+)\.([0-9]+)', f.read())
     version = f"{m.group(1)}.{m.group(2)}.{build}" if m else f"0.1.{build}"
+
+# Declare the app's privacy permissions (e.g. location) so SideStore shows them and doesn't refuse the install.
+privacy = {}
+with zipfile.ZipFile(ipa) as z:
+    plist_name = next((n for n in z.namelist() if re.fullmatch(r"Payload/[^/]+\.app/Info\.plist", n)), None)
+    if plist_name:
+        info = plistlib.loads(z.read(plist_name))
+        privacy = {k: v for k, v in info.items() if k.startswith("NS") and k.endswith("UsageDescription")}
 
 base = f"https://github.com/{repo}"
 raw = f"https://raw.githubusercontent.com/{repo}/main"
@@ -70,7 +80,7 @@ source = {
             ],
             "appPermissions": {
                 "entitlements": [],
-                "privacy": {},
+                "privacy": privacy,
             },
         }
     ],

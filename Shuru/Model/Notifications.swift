@@ -12,6 +12,17 @@ enum Notifications {
         UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { _, _ in }
     }
 
+    /// Shows a notification right away (used when you arrive somewhere).
+    static func announce(id: String, title: String, body: String) {
+        let content = UNMutableNotificationContent()
+        content.title = title
+        content.body = body
+        content.sound = .default
+        content.interruptionLevel = .active
+        let request = UNNotificationRequest(identifier: "shuru.arrive.\(id)", content: content, trigger: nil)
+        UNUserNotificationCenter.current().add(request)
+    }
+
     static func reschedule(for data: AppData?) {
         guard let data else { return }
         let center = UNUserNotificationCenter.current()

@@ -30,6 +30,8 @@ targets:
           - CFBundleURLName: io.github.priyanshsingh.shuru
             CFBundleURLSchemes:
               - shuru
+        NSLocationWhenInUseUsageDescription: Shuru uses your location only to notice when you arrive somewhere you picked, like home, so it can start that routine. It never leaves your phone.
+        NSLocationAlwaysAndWhenInUseUsageDescription: Choose Always so Shuru can start your “When I get home” routines even when the app is closed. Your location never leaves your phone.
         LSApplicationQueriesSchemes:
           - instagram
         ITSAppUsesNonExemptEncryption: false

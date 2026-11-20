@@ -262,9 +262,18 @@ struct CalendarView: View {
                         }
                         Spacer()
                         if day == today {
-                            Text(p >= r.steps.count ? "Done" : (p > 0 ? "\(p) of \(r.steps.count)" : ""))
-                                .font(.system(size: 13, weight: .semibold))
-                                .foregroundStyle(p >= r.steps.count ? accent : .secondary)
+                            if r.trigger.isCue && !store.hasStarted(r) {
+                                Button("Start") { store.cueHappened(routineID: r.id, announce: false) }
+                                    .font(.system(size: 14, weight: .semibold))
+                                    .foregroundStyle(accent)
+                                    .frame(minWidth: 44, minHeight: 44)
+                                    .buttonStyle(.borderless)
+                                    .accessibilityLabel("Start " + r.title)
+                            } else {
+                                Text(p >= r.steps.count ? "Done" : (p > 0 ? "\(p) of \(r.steps.count)" : "Started"))
+                                    .font(.system(size: 13, weight: .semibold))
+                                    .foregroundStyle(p >= r.steps.count ? accent : .secondary)
+                            }
                         }
                     }
                     .padding(.horizontal, 16)

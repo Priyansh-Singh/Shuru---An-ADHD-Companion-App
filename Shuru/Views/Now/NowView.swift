@@ -148,22 +148,31 @@ struct NowView: View {
             .accessibilityAction(named: "Mark done") { finish(item, fromHold: false) }
             .accessibilityAction(named: "Options") { optionsItem = item }
         } else {
-            Button {
-                store.go(to: .calendar)
-            } label: {
-                VStack(spacing: 12) {
-                    Text("That’s everything.")
-                        .font(.system(size: 26, weight: .semibold))
-                        .foregroundStyle(.primary)
-                    Text("Nothing next. Go enjoy it.")
-                        .font(.system(size: 13, weight: .medium))
-                        .foregroundStyle(Theme.orbSub(dark))
+            let waiting = store.waitingRoutines()
+            VStack(spacing: 16) {
+                Button {
+                    store.go(to: .calendar)
+                } label: {
+                    VStack(spacing: 12) {
+                        Text("That’s everything.")
+                            .font(.system(size: 26, weight: .semibold))
+                            .foregroundStyle(.primary)
+                        Text(waiting.isEmpty ? "Nothing next. Go enjoy it." : "Nothing else until one of these happens.")
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundStyle(Theme.orbSub(dark))
+                    }
+                    .padding(.horizontal, 24)
+                    .padding(.top, 24)
                 }
-                .padding(24)
+                .buttonStyle(.plain)
+                .accessibilityHint("Opens the calendar")
+                ForEach(waiting.prefix(3)) { r in
+                    WaitingCueButton(routine: r, accent: Theme.accent(settings.palette)) {
+                        store.cueHappened(routineID: r.id, announce: false)
+                    }
+                }
             }
-            .buttonStyle(.plain)
             .opacity(opacity)
-            .accessibilityHint("Opens the calendar")
         }
     }
 
@@ -366,5 +375,28 @@ struct HoldDisc: View {
         }
         .allowsHitTesting(false)
         .accessibilityHidden(true)
+    }
+}
+
+/// A cue routine that hasn't started yet, shown on Now when nothing else is next.
+struct WaitingCueButton: View {
+    let routine: Routine
+    let accent: Color
+    let start: () -> Void
+
+    var body: some View {
+        Button(action: start) {
+            HStack(spacing: 8) {
+                Image(systemName: routine.trigger.kind.symbol)
+                Text(routine.trigger.label).lineLimit(1)
+                Text("Start").foregroundStyle(accent)
+            }
+            .font(.system(size: 14, weight: .semibold))
+            .padding(.horizontal, 16)
+            .frame(minHeight: 44)
+            .background(.ultraThinMaterial, in: Capsule())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Start: " + routine.trigger.label + ", " + routine.title)
     }
 }

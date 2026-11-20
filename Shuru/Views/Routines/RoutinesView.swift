@@ -217,6 +217,9 @@ struct RoutineRow: View {
         .padding(.horizontal, 16)
         .frame(minHeight: 56)
         .contextMenu {
+            if routine.enabled && routine.trigger.isCue && routine.runs(on: Day.today) && !store.hasStarted(routine) {
+                Button("Start now", systemImage: "play") { store.cueHappened(routineID: routine.id, announce: false) }
+            }
             Button("Edit", systemImage: "pencil", action: edit)
             Button("Delete", systemImage: "trash", role: .destructive) { store.delete(routine: routine.id) }
         }
@@ -224,6 +227,7 @@ struct RoutineRow: View {
 
     private func subtitle(type: TaskType) -> String {
         var parts = [routine.trigger.label, Day.daysLabel(routine.days), type.name]
+        if routine.trigger.kind == .place && routine.trigger.place != nil { parts.append("Starts when you arrive") }
         if routine.steps.count > 1 { parts.append("\(routine.steps.count) steps") }
         if !routine.backup.isEmpty { parts.append("Backup: " + routine.backup) }
         return parts.joined(separator: " · ")
