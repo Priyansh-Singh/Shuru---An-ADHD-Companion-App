@@ -287,6 +287,8 @@ struct BackupSection: View {
     @State private var pickingFile = false
     @State private var pendingRestore: Data?
     @State private var message: String?
+    @State private var exporting = false
+    @State private var exportDoc: BackupDocument?
 
     var body: some View {
         Section {
@@ -317,6 +319,21 @@ struct BackupSection: View {
                         backup.useFolder(url)
                         message = backup.backUpNow(store) ? "Backed up to “\(url.lastPathComponent)”." : backup.lastError
                     }
+                }
+            }
+            Button {
+                if let d = store.exportData() {
+                    exportDoc = BackupDocument(data: d)
+                    exporting = true
+                }
+            } label: {
+                Label("Save a copy to Files…", systemImage: "square.and.arrow.down")
+            }
+            .fileExporter(isPresented: $exporting, document: exportDoc, contentType: .json,
+                          defaultFilename: "Shuru Backup " + Day.today) { result in
+                switch result {
+                case .success(let url): message = "Saved “\(url.lastPathComponent)”."
+                case .failure: message = "Couldn’t save the copy."
                 }
             }
             Button {
@@ -359,7 +376,7 @@ struct BackupSection: View {
     }
 
     private var footer: String {
-        var text = "Pick a folder in iCloud Drive, Google Drive, Dropbox, OneDrive or any app in Files. Shuru saves a copy when you leave the app and keeps a daily copy for a week. On a new phone, install Shuru and restore from that file."
+        var text = "Automatic backups go to a folder in iCloud Drive or On My iPhone: iOS only lets apps keep a folder from those. Shuru saves when you leave the app and keeps a daily copy for a week. For Google Drive, Dropbox or OneDrive, use Save a copy. On a new phone, install Shuru and restore from the file."
         if let last = backup.lastBackup {
             let f = DateFormatter()
             f.dateStyle = .medium
@@ -367,5 +384,21 @@ struct BackupSection: View {
             text = "Last backup: " + f.string(from: last) + ".\n" + text
         }
         return text
+    }
+}
+
+/// The backup JSON as a file for "Save a copy to Files…".
+struct BackupDocument: FileDocument {
+    static var readableContentTypes: [UTType] { [.json] }
+    var data: Data
+
+    init(data: Data) { self.data = data }
+
+    init(configuration: ReadConfiguration) throws {
+        data = configuration.file.regularFileContents ?? Data()
+    }
+
+    func fileWrapper(configuration: WriteConfiguration) throws -> FileWrapper {
+        FileWrapper(regularFileWithContents: data)
     }
 }
