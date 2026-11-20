@@ -31,7 +31,7 @@ struct HoursView: View {
     private func content(now: Date) -> some View {
         let s = store.settings
         let today = Day.today
-        let hour = Day.calendar.component(.hour, from: now)
+        let hour = Day.hour(of: now)
         let wake = s.wakeHour
         let bed = max(s.bedHour, wake + 1)
         let pending = pendingHours(now: now, today: today, wake: wake)
@@ -186,14 +186,14 @@ struct HoursView: View {
     }
 
     private func loggedCard(today: String, wake: Int, bed: Int) -> some View {
-        let logged: [LoggedHour] = (0..<24).compactMap { h in
+        let logged: [LoggedHour] = (0..<(24 + Day.startHour)).compactMap { h in
             guard let e = store.entry(day: today, hour: h) else { return nil }
             return LoggedHour(hour: h, entry: e)
         }
         return Card {
             CardHeader("Logged today") {
                 Button {
-                    editing = HourEditRequest(hour: Day.calendar.component(.hour, from: Date()))
+                    editing = HourEditRequest(hour: Day.hour(of: Date()))
                 } label: {
                     Label("Log an hour", systemImage: "plus")
                         .font(.system(size: 14, weight: .semibold))
@@ -219,11 +219,11 @@ struct HoursView: View {
     // MARK: Logic
 
     private func pendingHours(now: Date, today: String, wake: Int) -> [Int] {
-        let hour = Day.calendar.component(.hour, from: now)
+        let hour = Day.hour(of: now)
         guard hour >= wake else { return [] }
         var start = wake
-        if let last = store.data.lastCheckIn, Day.key(last) == today {
-            start = max(wake, Day.calendar.component(.hour, from: last))
+        if let last = store.data.lastCheckIn, Day.day(of: last) == today {
+            start = max(wake, Day.hour(of: last))
         }
         return (start...hour).filter { store.entry(day: today, hour: $0) == nil }
     }
@@ -364,7 +364,7 @@ struct HourEditor: View {
         NavigationStack {
             Form {
                 Picker("Hour", selection: $hour) {
-                    ForEach(0..<24, id: \.self) { h in
+                    ForEach(min(original, Day.startHour)..<(24 + Day.startHour), id: \.self) { h in
                         Text(Day.hourLabel(h) + "–" + Day.hourLabel(h + 1)).tag(h)
                     }
                 }

@@ -31,7 +31,18 @@ struct SettingsView: View {
                 }
             }
 
-            Section("Calendar") {
+            Section {
+                Picker(selection: $store.data.settings.dayStartHour) {
+                    Text("Midnight").tag(0)
+                    ForEach(1...5, id: \.self) { h in Text(Day.hourLabel(h)).tag(h) }
+                } label: {
+                    labeled("New day starts at", "Up late? Until then, it still counts as the day before.")
+                }
+                .onChange(of: store.data.settings.dayStartHour) { _, start in
+                    let s = store.data.settings
+                    if s.wakeHour < start { store.data.settings.wakeHour = start }
+                    if s.bedHour > 24 + start { store.data.settings.bedHour = 24 + start }
+                }
                 Picker("Week starts on", selection: $store.data.settings.weekStartsMonday) {
                     Text("Sunday").tag(false)
                     Text("Monday").tag(true)
@@ -39,6 +50,10 @@ struct SettingsView: View {
                 Toggle(isOn: $store.data.settings.reviewReminder) {
                     labeled("Review reminders", "Weekly: 7 pm on the last day of your week. Monthly: 7:30 pm on the month’s last day, if it has goals.")
                 }
+            } header: {
+                Text("Days and weeks")
+            } footer: {
+                Text("Tasks roll over, streaks count and today’s list resets at the new-day time, not at midnight.")
             }
 
             Section("Now screen") {
@@ -144,8 +159,10 @@ struct SettingsView: View {
 
             if store.settings.hours {
                 Section("Hours and check-ins") {
-                    Stepper("Day starts at \(Day.hourLabel(store.settings.wakeHour))", value: $store.data.settings.wakeHour, in: 4...12)
-                    Stepper("Day ends at \(Day.hourLabel(store.settings.bedHour))", value: $store.data.settings.bedHour, in: 19...24)
+                    Stepper("Track hours from \(Day.hourLabel(store.settings.wakeHour))", value: $store.data.settings.wakeHour,
+                            in: max(4, store.settings.dayStartHour)...12)
+                    Stepper("Track hours until \(Day.hourLabel(store.settings.bedHour))", value: $store.data.settings.bedHour,
+                            in: 19...(24 + store.settings.dayStartHour))
                     Picker("Ask me to log", selection: $store.data.settings.checkEvery) {
                         Text("Hourly").tag(1)
                         Text("Every 2 h").tag(2)

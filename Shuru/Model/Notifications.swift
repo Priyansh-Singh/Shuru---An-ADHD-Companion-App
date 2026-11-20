@@ -103,14 +103,14 @@ enum Notifications {
             // Hour check-ins
             if s.hours && s.checkEvery > 0 && s.chime != .off {
                 var h = s.wakeHour + s.checkEvery
-                while h <= min(s.bedHour, 23) {
+                while h <= min(s.bedHour, 23 + s.dayStartHour) {
                     let content = UNMutableNotificationContent()
                     content.title = "It’s " + Day.hourLabel(h)
                     content.body = "What did the last " + (s.checkEvery == 1 ? "hour" : "\(s.checkEvery) hours") + " go to?"
                     content.sound = s.chime == .sound ? .default : nil
                     content.interruptionLevel = .active
                     var dc = DateComponents()
-                    dc.hour = h
+                    dc.hour = h % 24
                     dc.minute = 0
                     let trigger = UNCalendarNotificationTrigger(dateMatching: dc, repeats: true)
                     requests.append(UNNotificationRequest(identifier: "shuru.checkin.\(h)", content: content, trigger: trigger))

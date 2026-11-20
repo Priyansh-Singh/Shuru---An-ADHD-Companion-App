@@ -22,7 +22,22 @@ enum Day {
         return formatter.date(from: key) ?? calendar.startOfDay(for: Date())
     }
 
-    static var today: String { key(Date()) }
+    /// The hour a new day begins (0 = midnight). Later than midnight, late nights count toward the day before.
+    static var startHour = 0
+
+    /// The day a moment belongs to: before the start hour, that's still the day before.
+    static func day(of moment: Date) -> String {
+        guard startHour > 0 else { return key(moment) }
+        return key(calendar.date(byAdding: .hour, value: -startHour, to: moment) ?? moment)
+    }
+
+    /// The hour of a moment within its day. When the day starts at 4 am, 1 am is hour 25.
+    static func hour(of moment: Date) -> Int {
+        let h = calendar.component(.hour, from: moment)
+        return h < startHour ? h + 24 : h
+    }
+
+    static var today: String { day(of: Date()) }
 
     static func add(_ days: Int, to key: String) -> String {
         let d = calendar.date(byAdding: .day, value: days, to: date(key)) ?? date(key)
@@ -35,10 +50,7 @@ enum Day {
     }
 
     static func mondayKey(_ date: Date = Date()) -> String {
-        let wd = calendar.component(.weekday, from: date)
-        let back = (wd + 5) % 7
-        let m = calendar.date(byAdding: .day, value: -back, to: calendar.startOfDay(for: date)) ?? date
-        return key(m)
+        weekStart(of: day(of: date), mondayFirst: true)
     }
 
     static func sundayStart(of key: String) -> String {

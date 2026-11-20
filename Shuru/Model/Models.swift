@@ -237,7 +237,7 @@ struct Completion: Codable, Identifiable, Hashable {
     /// The goal it counted toward when you finished it.
     var goalID: UUID? = nil
 
-    var day: String { Day.key(at) }
+    var day: String { Day.day(of: at) }
 
     /// Minutes you expected: the upper limit if you set one, otherwise the lower one.
     var guessMinutes: Int? { limitMax ?? limitMin }
@@ -410,6 +410,8 @@ struct AppSettings: Codable, Hashable {
     var tokenCap = 8
     var tokenWeekly = true
 
+    /// When a new day begins: 0 is midnight, up to 5 am.
+    var dayStartHour = 0
     var wakeHour = 8
     var bedHour = 23
     var checkEvery = 1

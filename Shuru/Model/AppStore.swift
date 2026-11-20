@@ -60,7 +60,10 @@ final class AppStore: ObservableObject {
     static let shared = AppStore()
 
     @Published var data: AppData {
-        didSet { scheduleSave() }
+        didSet {
+            Day.startHour = data.settings.dayStartHour
+            scheduleSave()
+        }
     }
 
     // Things that are not saved
@@ -98,6 +101,7 @@ final class AppStore: ObservableObject {
         let url = dir.appendingPathComponent("shuru.json")
         fileURL = url
         data = AppStore.load(from: url)
+        Day.startHour = data.settings.dayStartHour
         if !data.seeded {
             seedExamples()
             saveNow()
@@ -260,7 +264,7 @@ final class AppStore: ObservableObject {
         let next = queue().first.map { displayTitle($0) }
         Notifications.breakEnds(at: until, next: next)
         if data.settings.hours && data.settings.autoLog {
-            let h = Day.calendar.component(.hour, from: Date())
+            let h = Day.hour(of: Date())
             var dayLog = data.hours[Day.today] ?? [:]
             if dayLog[String(h)] == nil {
                 dayLog[String(h)] = HourEntry(typeID: "rest", note: "Break", auto: true)
@@ -486,7 +490,7 @@ final class AppStore: ObservableObject {
 
     /// The ordered list of things to do today. The first one is shown on Now.
     func queue(day: String = Day.today) -> [NowItem] {
-        let nowMinutes = Day.calendar.component(.hour, from: Date()) * 60 + Day.calendar.component(.minute, from: Date())
+        let nowMinutes = Day.hour(of: Date()) * 60 + Day.calendar.component(.minute, from: Date())
         var entries: [(item: NowItem, bucket: Int, minutes: Int, order: Int)] = []
         var order = 0
 
@@ -639,7 +643,7 @@ final class AppStore: ObservableObject {
 
     func beginLogging(_ item: NowItem) {
         guard data.settings.hours && data.settings.autoLog else { return }
-        let h = Day.calendar.component(.hour, from: Date())
+        let h = Day.hour(of: Date())
         activeLog = (item.id, h)
         let day = Day.today
         var dayLog = data.hours[day] ?? [:]
@@ -651,7 +655,7 @@ final class AppStore: ObservableObject {
 
     private func autoLog(typeID: String, note: String, itemID: String) {
         let day = Day.today
-        let to = Day.calendar.component(.hour, from: Date())
+        let to = Day.hour(of: Date())
         let from = (activeLog?.itemID == itemID) ? (activeLog?.startHour ?? to) : to
         var dayLog = data.hours[day] ?? [:]
         for h in min(from, to)...to where dayLog[String(h)] == nil {
