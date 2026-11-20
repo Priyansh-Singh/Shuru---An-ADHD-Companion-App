@@ -27,6 +27,12 @@ jobs:
       - name: Generate Xcode project
         run: xcodegen generate
 
+      - name: Pick version number
+        run: |
+          BASE=$(grep -m1 MARKETING_VERSION project.yml | sed -E 's/[^0-9]*([0-9]+)\.([0-9]+).*/\1.\2/')
+          echo "APP_VERSION=$BASE.${{ github.run_number }}" >> "$GITHUB_ENV"
+          echo "Version: $BASE.${{ github.run_number }}"
+
       - name: Build (unsigned)
         run: |
           set -o pipefail
@@ -41,6 +47,7 @@ jobs:
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY="" \
             CURRENT_PROJECT_VERSION=${{ github.run_number }} \
+            MARKETING_VERSION="$APP_VERSION" \
             build 2>&1 | tee build.log | grep -E "error:|\*\* BUILD" || true
           grep -q "BUILD SUCCEEDED" build.log
           test -f build/Build/Products/Release-iphoneos/Shuru.app/Shuru

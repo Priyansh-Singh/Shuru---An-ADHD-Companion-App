@@ -15,9 +15,13 @@ build = os.environ["BUILD_NUMBER"]
 ipa = sys.argv[1] if len(sys.argv) > 1 else "Shuru.ipa"
 notes = os.environ.get("RELEASE_NOTES", "").strip().splitlines()
 
-with open("project.yml", encoding="utf-8") as f:
-    m = re.search(r'MARKETING_VERSION:\s*"?([0-9.]+)"?', f.read())
-version = m.group(1) if m else "0.1.0"
+# Every build gets its own version (0.1.<build>), not only its own build number,
+# because some SideStore versions only compare the version string for updates.
+version = os.environ.get("APP_VERSION", "").strip()
+if not version:
+    with open("project.yml", encoding="utf-8") as f:
+        m = re.search(r'MARKETING_VERSION:\s*"?([0-9]+)\.([0-9]+)', f.read())
+    version = f"{m.group(1)}.{m.group(2)}.{build}" if m else f"0.1.{build}"
 
 base = f"https://github.com/{repo}"
 raw = f"https://raw.githubusercontent.com/{repo}/main"
