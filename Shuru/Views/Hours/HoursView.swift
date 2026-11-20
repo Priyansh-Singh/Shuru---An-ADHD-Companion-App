@@ -181,19 +181,7 @@ struct HoursView: View {
                     .padding(.vertical, 8)
             }
             ForEach(logged) { pair in
-                let type = store.type(pair.entry.typeID)
-                HStack(spacing: 12) {
-                    TypeDot(color: type.color).frame(width: 20)
-                    Text(type.name + (pair.entry.note.isEmpty ? "" : " · " + pair.entry.note))
-                        .font(.system(size: 16))
-                        .lineLimit(1)
-                    Spacer()
-                    Text((pair.entry.auto ? "Auto · " : "") + Day.hourLabel(pair.hour))
-                        .font(.system(size: 13))
-                        .foregroundStyle(.secondary)
-                }
-                .padding(.horizontal, 16)
-                .frame(minHeight: 46)
+                LoggedHourRow(hour: pair.hour, entry: pair.entry, type: store.type(pair.entry.typeID))
             }
         }
     }
@@ -255,5 +243,58 @@ struct HourBlock: View {
         if entry != nil { return color }
         if isPast || isNow { return .clear }
         return Theme.card2
+    }
+}
+
+/// One logged hour: what happened first, the type underneath. Tap to see all of a long note.
+struct LoggedHourRow: View {
+    let hour: Int
+    let entry: HourEntry
+    let type: TaskType
+    @State private var expanded = false
+
+    private var mainText: String { entry.note.isEmpty ? type.name : entry.note }
+    private var isLong: Bool { mainText.count > 38 }
+
+    var body: some View {
+        Button {
+            guard isLong else { return }
+            withAnimation(.easeInOut(duration: 0.2)) { expanded.toggle() }
+        } label: {
+            HStack(alignment: .top, spacing: 12) {
+                Text(Day.hourLabel(hour))
+                    .font(.system(size: 13, weight: .medium).monospacedDigit())
+                    .foregroundStyle(.secondary)
+                    .frame(width: 50, alignment: .leading)
+                    .padding(.top, 2)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(mainText)
+                        .font(.system(size: 16))
+                        .foregroundStyle(.primary)
+                        .lineLimit(expanded ? nil : 2)
+                        .multilineTextAlignment(.leading)
+                        .fixedSize(horizontal: false, vertical: true)
+                    HStack(spacing: 6) {
+                        TypeDot(color: type.color, size: 7)
+                        Text(type.name + (entry.auto ? " · logged automatically" : ""))
+                            .font(.system(size: 12))
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                Spacer(minLength: 0)
+                if isLong {
+                    Image(systemName: expanded ? "chevron.up" : "chevron.down")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                        .padding(.top, 4)
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityElement(children: .combine)
+        .accessibilityHint(isLong ? (expanded ? "Double tap to show less" : "Double tap to show all") : "")
     }
 }

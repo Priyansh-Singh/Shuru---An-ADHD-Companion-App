@@ -23,7 +23,10 @@ struct NowView: View {
     @State private var hintVisible = true
     @State private var buzz: Task<Void, Never>?
     @State private var finishing = false
-    @State private var panel: DayFlowPanel.Kind?
+    @State private var flow: FlowMode = .rest
+    @State private var dragY: CGFloat = 0
+
+    enum FlowMode { case rest, upcoming, done }
 
     private let fillDelay = 0.12
     private var dark: Bool { scheme == .dark }
@@ -34,91 +37,88 @@ struct NowView: View {
     var body: some View {
         let current = heldItem ?? store.queue().first
         GeometryReader { geo in
-            let center = CGPoint(x: geo.size.width / 2, y: geo.size.height * 0.44)
+            let h = geo.size.height
+            let taskY = taskCenterY(h)
+            let taskPoint = CGPoint(x: geo.size.width / 2, y: taskY)
+            let orbPoint = CGPoint(x: geo.size.width / 2, y: h * 0.44 + (taskY - h * 0.44) * 0.3)
+            let upReveal = Ease.clamp(Double((taskY - h * 0.44) / (h * 0.36)))
+            let doneReveal = Ease.clamp(Double((h * 0.44 - taskY) / (h * 0.26)))
             ZStack {
-            TimelineView(.animation(minimumInterval: nil, paused: reduceMotion && !isAnimating)) { context in
-                let now = context.date
-                let fill = fillValue(at: now)
-                ZStack {
-                    Theme.background.ignoresSafeArea()
+                TimelineView(.animation(minimumInterval: nil, paused: reduceMotion && !isAnimating)) { context in
+                    let now = context.date
+                    let fill = fillValue(at: now)
+                    ZStack {
+                        Theme.background.ignoresSafeArea()
 
-                    OrbView(colors: Theme.orb(settings.palette, dark: dark), dark: dark, blur: settings.orbEdges.blur,
-                            time: reduceMotion ? 0 : now.timeIntervalSinceReferenceDate * settings.orbSpeed.factor)
-                        .scaleEffect(orbScale(now: now, fill: fill, empty: current == nil))
-                        .animation(.easeInOut(duration: 3.2), value: store.breathPhase)
-                        .position(center)
+                        OrbView(colors: Theme.orb(settings.palette, dark: dark), dark: dark, blur: settings.orbEdges.blur,
+                                time: reduceMotion ? 0 : now.timeIntervalSinceReferenceDate * settings.orbSpeed.factor)
+                            .scaleEffect(orbScale(now: now, fill: fill, empty: current == nil))
+                            .animation(.easeInOut(duration: 3.2), value: store.breathPhase)
+                            .position(orbPoint)
 
-                    Rectangle()
-                        .fill(EllipticalGradient(colors: [scrimColor, scrimColor.opacity(0)], center: .center,
-                                                 startRadiusFraction: 0, endRadiusFraction: 0.5))
-                        .frame(width: 380, height: 260)
-                        .allowsHitTesting(false)
-                        .position(center)
-                        .accessibilityHidden(true)
+                        Rectangle()
+                            .fill(EllipticalGradient(colors: [scrimColor, scrimColor.opacity(0)], center: .center,
+                                                     startRadiusFraction: 0, endRadiusFraction: 0.5))
+                            .frame(width: 380, height: 260)
+                            .allowsHitTesting(false)
+                            .position(taskPoint)
+                            .accessibilityHidden(true)
 
-                    HoldDisc(fill: fill, celebrationTime: celebrationTime(now), holding: pressStart != nil,
-                             accent: Theme.accent(settings.palette), dark: dark)
-                        .position(center)
+                        HoldDisc(fill: fill, celebrationTime: celebrationTime(now), holding: pressStart != nil,
+                                 accent: Theme.accent(settings.palette), dark: dark)
+                            .position(taskPoint)
 
-                    if let c = celebration, settings.celebration != .off {
-                        CelebrationView(t: now.timeIntervalSince(c.start), label: c.label, style: settings.celebration,
-                                        palette: settings.palette, dark: dark)
-                            .position(center)
-                    }
+                        if let c = celebration, settings.celebration != .off {
+                            CelebrationView(t: now.timeIntervalSince(c.start), label: c.label, style: settings.celebration,
+                                            palette: settings.palette, dark: dark)
+                                .position(taskPoint)
+                        }
 
-                    if store.pauseStage == nil {
-                        taskLayer(current: current, now: now, fill: fill)
-                            .position(center)
-                    }
+                        if store.pauseStage == nil {
+                            taskLayer(current: current, now: now, fill: fill)
+                                .scaleEffect(1 - 0.12 * CGFloat(max(upReveal, doneReveal)))
+                                .position(taskPoint)
+                        }
 
-                    hint
-                        .position(x: center.x, y: geo.size.height - 92)
+                        hint
+                            .opacity(flow == .rest ? 1 : 0)
+                            .position(x: taskPoint.x, y: h - 92)
 
-                    if store.pauseStage != nil {
-                        PauseOverlay(item: store.queue().first)
-                    }
-                }
-            }
-
-            if store.pauseStage == nil && panel == nil && celebration == nil {
-                flowHandles(height: geo.size.height)
-            }
-
-            if let banner = store.banner {
-                Text(banner)
-                    .font(.system(size: 13, weight: .semibold))
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 10)
-                    .background(Theme.card2, in: Capsule())
-                    .padding(.horizontal, 24)
-                    .padding(.top, 56)
-                    .frame(maxHeight: .infinity, alignment: .top)
-                    .transition(.move(edge: .top).combined(with: .opacity))
-                    .zIndex(3)
-                    .onAppear {
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 5) {
-                            if store.banner == banner { withAnimation { store.banner = nil } }
+                        if store.pauseStage != nil {
+                            PauseOverlay(item: store.queue().first)
                         }
                     }
-            }
+                }
 
-            if let panel {
-                Color.black.opacity(0.35)
-                    .ignoresSafeArea()
-                    .onTapGesture { setPanel(nil) }
-                    .accessibilityHidden(true)
-                    .transition(.opacity)
-                DayFlowPanel(kind: panel) { setPanel(nil) }
-                    .frame(maxHeight: geo.size.height * 0.8)
-                    .frame(maxHeight: .infinity, alignment: panel == .upcoming ? .top : .bottom)
-                    .padding(.top, panel == .upcoming ? 4 : 0)
-                    .padding(.bottom, panel == .done ? 8 : 0)
-                    .transition(.move(edge: panel == .upcoming ? .top : .bottom))
-                    .zIndex(2)
+                if store.pauseStage == nil {
+                    flowColumns(height: h, width: geo.size.width, taskY: taskY, upReveal: upReveal, doneReveal: doneReveal)
+                }
+
+                if store.pauseStage == nil && flow == .rest && celebration == nil {
+                    flowHandles(height: h)
+                }
+
+                if let banner = store.banner {
+                    Text(banner)
+                        .font(.system(size: 13, weight: .semibold))
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 10)
+                        .background(Theme.card2, in: Capsule())
+                        .padding(.horizontal, 24)
+                        .padding(.top, 56)
+                        .frame(maxHeight: .infinity, alignment: .top)
+                        .transition(.move(edge: .top).combined(with: .opacity))
+                        .zIndex(3)
+                        .onAppear {
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 5) {
+                                if store.banner == banner { withAnimation { store.banner = nil } }
+                            }
+                        }
+                }
             }
-            }
-            .simultaneousGesture(flowSwipe)
+            .contentShape(Rectangle())
+            .simultaneousGesture(flowDrag)
         }
         .sheet(item: $optionsItem) { item in
             OptionsSheet(item: item, holdMode: holdMode) { action in
@@ -128,10 +128,8 @@ struct NowView: View {
             .presentationDragIndicator(.visible)
         }
         .onDisappear {
-            if panel != nil {
-                panel = nil
-                store.nowPanelOpen = false
-            }
+            flow = .rest
+            dragY = 0
         }
         .onAppear {
             hintVisible = true
@@ -139,25 +137,82 @@ struct NowView: View {
         }
     }
 
-    // MARK: Day flow (pull down: coming up, pull up: done)
+    // MARK: Day flow (pull down: coming up above the task, pull up: done below it)
 
-    private func setPanel(_ p: DayFlowPanel.Kind?) {
-        withAnimation(.spring(response: 0.42, dampingFraction: 0.86)) { panel = p }
-        store.nowPanelOpen = p != nil
+    private func baseY(_ mode: FlowMode, _ h: CGFloat) -> CGFloat {
+        switch mode {
+        case .rest: return h * 0.44
+        case .upcoming: return h * 0.80
+        case .done: return h * 0.18
+        }
     }
 
-    private var flowSwipe: some Gesture {
-        DragGesture(minimumDistance: 30)
-            .onEnded { v in
-                guard store.pauseStage == nil, pressStart == nil, celebration == nil else { return }
+    private func taskCenterY(_ h: CGFloat) -> CGFloat {
+        let y = baseY(flow, h) + dragY
+        return min(max(y, h * 0.16), h * 0.82)
+    }
+
+    private func setFlow(_ mode: FlowMode) {
+        withAnimation(.spring(response: 0.45, dampingFraction: 0.86)) {
+            flow = mode
+            dragY = 0
+        }
+    }
+
+    private var canFlow: Bool { store.pauseStage == nil && pressStart == nil && celebration == nil }
+
+    private var flowDrag: some Gesture {
+        DragGesture(minimumDistance: 20)
+            .onChanged { v in
+                guard canFlow else { return }
                 let dx = v.translation.width, dy = v.translation.height
-                guard abs(dy) > abs(dx) * 1.4 else { return }
-                if panel == nil {
-                    if dy > 70 { setPanel(.upcoming) } else if dy < -70 { setPanel(.done) }
-                } else if (panel == .upcoming && dy < -60) || (panel == .done && dy > 60) {
-                    setPanel(nil)
-                }
+                guard abs(dy) > abs(dx) * 1.2 else { return }
+                dragY = dy * 0.65
             }
+            .onEnded { v in
+                guard canFlow else { setFlow(flow); return }
+                let dx = v.translation.width, dy = v.translation.height
+                var next = flow
+                if abs(dy) > abs(dx) * 1.2 {
+                    switch flow {
+                    case .rest:
+                        if dy > 70 { next = .upcoming } else if dy < -70 { next = .done }
+                    case .upcoming:
+                        if dy < -50 { next = .rest }
+                    case .done:
+                        if dy > 50 { next = .rest }
+                    }
+                }
+                if next != flow && settings.haptics { UIImpactFeedbackGenerator(style: .soft).impactOccurred() }
+                setFlow(next)
+            }
+    }
+
+    @ViewBuilder
+    private func flowColumns(height h: CGFloat, width: CGFloat, taskY: CGFloat, upReveal: Double, doneReveal: Double) -> some View {
+        // Coming up: fills the space above the task, nearest step at the bottom.
+        let upBottom = baseY(.upcoming, h) - 70
+        let upTop: CGFloat = 52
+        let upHeight = max(0, upBottom - upTop)
+        DayFlowColumn(kind: .upcoming, maxRows: max(2, Int(upHeight / 54)))
+            .padding(.horizontal, 24)
+            .frame(width: width, height: upHeight, alignment: .bottom)
+            .position(x: width / 2, y: upTop + upHeight / 2 + (taskY - baseY(.upcoming, h)))
+            .opacity(upReveal)
+            .allowsHitTesting(flow == .upcoming)
+            .accessibilityHidden(flow != .upcoming)
+
+        // Done: fills the space below the task, most recent at the top.
+        let doneTop = baseY(.done, h) + 70
+        let doneBottom = h - 110
+        let doneHeight = max(0, doneBottom - doneTop)
+        DayFlowColumn(kind: .done, maxRows: max(2, Int(doneHeight / 54)))
+            .padding(.horizontal, 24)
+            .frame(width: width, height: doneHeight, alignment: .top)
+            .position(x: width / 2, y: doneTop + doneHeight / 2 + (taskY - baseY(.done, h)))
+            .opacity(doneReveal)
+            .allowsHitTesting(flow == .done)
+            .accessibilityHidden(flow != .done)
     }
 
     @ViewBuilder
@@ -167,7 +222,7 @@ struct NowView: View {
         let doneCount = store.completions(on: Day.today).count
         VStack {
             Button {
-                setPanel(.upcoming)
+                setFlow(.upcoming)
             } label: {
                 HStack(spacing: 6) {
                     Text(comingCount == 0 ? "Coming up" : "\(comingCount) coming up")
@@ -185,7 +240,7 @@ struct NowView: View {
             .padding(.top, 6)
             Spacer()
             Button {
-                setPanel(.done)
+                setFlow(.done)
             } label: {
                 HStack(spacing: 6) {
                     Image(systemName: "chevron.up").font(.system(size: 11, weight: .semibold))
@@ -360,6 +415,10 @@ struct NowView: View {
     // MARK: Gestures
 
     private func tapped(_ item: NowItem) {
+        if flow != .rest {
+            setFlow(.rest)
+            return
+        }
         if holdMode {
             guard celebration == nil else { return }
             optionsItem = item
@@ -369,7 +428,7 @@ struct NowView: View {
     }
 
     private func beginHold(_ item: NowItem) {
-        guard celebration == nil, !finishing, store.pauseStage == nil else { return }
+        guard celebration == nil, !finishing, store.pauseStage == nil, flow == .rest else { return }
         releaseAt = nil
         nudge = false
         hintVisible = false

@@ -1,276 +1,189 @@
 import SwiftUI
 
-/// Pull down on Now: what's coming, as a flow of routines and their steps, with tasks in line.
-/// Pull up on Now: what's done today, crossed out.
-struct DayFlowPanel: View {
+/// The day as a flowchart, drawn straight onto Now over the orb.
+/// Pull down: the task slides down and what's coming appears above it, nearest step first.
+/// Pull up: the task slides up and what's done today appears below it, crossed out.
+struct DayFlowColumn: View {
     enum Kind { case upcoming, done }
 
     @EnvironmentObject var store: AppStore
+    @Environment(\.colorScheme) private var scheme
     let kind: Kind
-    let close: () -> Void
+    let maxRows: Int
 
+    private var dark: Bool { scheme == .dark }
     private var accent: Color { Theme.accent(store.settings.palette) }
 
     var body: some View {
-        VStack(spacing: 0) {
-            if kind == .done { grabber }
-            HStack {
-                Text(kind == .upcoming ? "Coming up" : "Done today")
-                    .font(.system(size: 20, weight: .bold))
-                    .accessibilityAddTraits(.isHeader)
-                Spacer()
-                Button("Close", action: close)
-                    .font(.system(size: 15, weight: .semibold))
-                    .frame(minHeight: 44)
+        let entries = kind == .upcoming ? upcomingEntries() : doneEntries()
+        VStack(alignment: .leading, spacing: 0) {
+            if entries.isEmpty {
+                Text(kind == .upcoming ? "Nothing else planned today." : "Nothing finished yet today.")
+                    .font(.system(size: 15, weight: .medium))
+                    .foregroundStyle(Theme.orbSub(dark))
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 12)
             }
-            .padding(.horizontal, 20)
-            .padding(.top, kind == .upcoming ? 8 : 0)
-
-            ScrollView {
-                VStack(alignment: .leading, spacing: 0) {
-                    if kind == .upcoming { upcoming } else { done }
-                }
-                .padding(.horizontal, 20)
-                .padding(.bottom, 20)
+            ForEach(Array(entries.enumerated()), id: \.element.id) { pair in
+                row(pair.element,
+                    isFirst: kind == .upcoming ? pair.offset == 0 : false,
+                    isLast: kind == .upcoming ? false : pair.offset == entries.count - 1)
             }
-            if kind == .upcoming { grabber }
         }
-        .background(Theme.card, in: RoundedRectangle(cornerRadius: 28, style: .continuous))
-        .shadow(color: .black.opacity(0.3), radius: 24, y: kind == .upcoming ? 10 : -10)
-        .padding(.horizontal, 8)
+        .frame(maxWidth: 330)
+        .shadow(color: dark ? .black.opacity(0.55) : .white.opacity(0.75), radius: 10)
     }
 
-    private var grabber: some View {
-        Capsule()
-            .fill(Color.secondary.opacity(0.5))
-            .frame(width: 40, height: 5)
-            .frame(maxWidth: .infinity, minHeight: 28)
-            .contentShape(Rectangle())
-            .gesture(
-                DragGesture(minimumDistance: 10).onEnded { v in
-                    let dy = v.translation.height
-                    if (kind == .upcoming && dy < -40) || (kind == .done && dy > 40) { close() }
-                }
-            )
-            .accessibilityHidden(true)
-    }
-
-    // MARK: Coming up
+    // MARK: Rows
 
     @ViewBuilder
-    private var upcoming: some View {
-        let blocks = upcomingBlocks()
-        let waiting = store.cueRoutinesNotStarted()
-        if blocks.isEmpty && waiting.isEmpty {
-            Text("Nothing else planned today.")
-                .font(.system(size: 15))
-                .foregroundStyle(.secondary)
-                .padding(.vertical, 12)
-        }
-        ForEach(Array(blocks.enumerated()), id: \.element.id) { i, block in
-            FlowBlockView(block: block, accent: accent, isFirstBlock: i == 0,
-                          isLastBlock: i == blocks.count - 1 && waiting.isEmpty)
-        }
-        if !waiting.isEmpty {
-            Text("Waiting for a cue")
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(.secondary)
-                .padding(.top, 18)
-                .padding(.bottom, 4)
-            ForEach(Array(waiting.enumerated()), id: \.element.id) { i, r in
-                FlowBlockView(block: waitingBlock(r), accent: accent, isFirstBlock: i == 0, isLastBlock: i == waiting.count - 1,
-                              dimmed: true) {
-                    store.cueHappened(routineID: r.id, announce: false)
+    private func row(_ e: FlowEntry, isFirst: Bool, isLast: Bool) -> some View {
+        let line = dark ? Color.white.opacity(0.28) : Color.black.opacity(0.22)
+        FlowRow(isFirst: isFirst, isLast: isLast, lineColor: line) {
+            node(e)
+        } content: {
+            HStack(spacing: 8) {
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(e.title)
+                        .font(.system(size: e.isHeader ? 14 : 16, weight: e.isHeader ? .semibold : .regular))
+                        .strikethrough(e.done)
+                        .foregroundStyle(e.done || e.dimmed ? Theme.orbSub(dark) : Color.primary)
+                        .lineLimit(2)
+                    if let meta = e.meta {
+                        Text(meta)
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundStyle(Theme.orbSub(dark))
+                            .lineLimit(1)
+                    }
+                }
+                Spacer(minLength: 4)
+                if let id = e.startRoutine {
+                    Button("Start") { store.cueHappened(routineID: id, announce: false) }
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(accent)
+                        .frame(minWidth: 44, minHeight: 44)
+                        .buttonStyle(.borderless)
+                        .accessibilityLabel("Start " + e.title)
                 }
             }
         }
+        .accessibilityElement(children: .combine)
     }
 
-    private func upcomingBlocks() -> [FlowBlock] {
+    @ViewBuilder
+    private func node(_ e: FlowEntry) -> some View {
+        if e.isMore {
+            Image(systemName: "ellipsis")
+                .font(.system(size: 12, weight: .bold))
+                .foregroundStyle(Theme.orbSub(dark))
+        } else if e.isHeader {
+            Image(systemName: e.symbol)
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(e.dimmed ? Theme.orbSub(dark) : accent)
+                .frame(width: 24, height: 24)
+                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+        } else if e.done {
+            ZStack {
+                Circle().fill(Theme.orbSub(dark).opacity(0.8)).frame(width: 16, height: 16)
+                Image(systemName: "checkmark").font(.system(size: 8, weight: .heavy)).foregroundStyle(dark ? Color.black : Color.white)
+            }
+        } else {
+            Circle()
+                .strokeBorder(e.color, lineWidth: 2)
+                .background(Circle().fill(.ultraThinMaterial))
+                .frame(width: 14, height: 14)
+                .opacity(e.dimmed ? 0.6 : 1)
+        }
+    }
+
+    // MARK: Building the flow
+
+    /// Coming up, nearest first, then reversed so the nearest sits just above the task.
+    private func upcomingEntries() -> [FlowEntry] {
+        var list: [FlowEntry] = []
         let queue = store.queue()
-        return queue.enumerated().compactMap { (pair: EnumeratedSequence<[NowItem]>.Element) -> FlowBlock? in
-            let i = pair.offset
-            let item = pair.element
+        for (i, item) in queue.enumerated() {
             let steps: [Step]
-            let header: String
-            let symbol: String
+            var header: String = item.triggerLabel
+            var symbol = "checkmark.circle"
             if item.kind == .routine, let r = store.data.routines.first(where: { $0.id == item.refID }) {
-                steps = Array(r.steps.dropFirst(item.stepIndex))
+                steps = r.steps
                 header = r.trigger.label
                 symbol = r.trigger.kind.symbol
             } else if let t = store.data.tasks.first(where: { $0.id == item.refID }) {
-                steps = Array(t.steps.dropFirst(item.stepIndex))
-                header = item.triggerLabel == "Today" ? "Task" : item.triggerLabel
-                symbol = "checkmark.circle"
+                steps = t.steps
+                if header == "Today" { header = "Task" }
             } else {
-                return nil
+                continue
             }
-            let nodes: [FlowNode] = steps.enumerated().map { (p: EnumeratedSequence<[Step]>.Element) -> FlowNode in
-                let j = p.offset, s = p.element
-                return FlowNode(id: item.baseKey + "#" + String(item.stepIndex + j),
-                         title: (i == 0 && j == 0) ? store.displayTitle(item) : s.title,
-                         meta: nodeMeta(s),
-                         color: store.type(s.typeID).color,
-                         isCurrent: i == 0 && j == 0,
-                         done: false)
+            // The current step is the big text on Now, so the flow starts after it.
+            let from = i == 0 ? item.stepIndex + 1 : item.stepIndex
+            if i > 0 {
+                let progress: String? = item.stepCount > 1 ? "\(item.stepIndex + 1) of \(item.stepCount)" : nil
+                list.append(FlowEntry(id: "h-" + item.baseKey, title: header, meta: progress, symbol: symbol, isHeader: true))
             }
-            let progress = item.stepCount > 1 ? "\(item.stepIndex + 1) of \(item.stepCount)" : nil
-            return FlowBlock(id: item.baseKey, header: header, symbol: symbol, detail: progress, nodes: nodes)
+            if from < steps.count {
+                for j in from..<steps.count {
+                    let s = steps[j]
+                    list.append(FlowEntry(id: item.baseKey + "#" + String(j), title: s.title, meta: meta(s),
+                                          color: store.type(s.typeID).color))
+                }
+            }
         }
+        for r in store.cueRoutinesNotStarted() {
+            var detail = r.trigger.windowLabel ?? "Waiting"
+            if r.trigger.kind == .place && r.trigger.place != nil { detail += " · on arrival" }
+            let canStart = r.trigger.inWindow()
+            list.append(FlowEntry(id: "w-" + r.id.uuidString, title: r.trigger.label, meta: detail, symbol: r.trigger.kind.symbol,
+                                  isHeader: true, dimmed: true, startRoutine: canStart ? r.id : nil))
+            for (j, s) in r.steps.enumerated() {
+                list.append(FlowEntry(id: "w-" + r.id.uuidString + "#" + String(j), title: s.title, meta: meta(s),
+                                      color: store.type(s.typeID).color, dimmed: true))
+            }
+        }
+        if list.count > maxRows && maxRows > 1 {
+            let hidden = list.count - (maxRows - 1)
+            list = Array(list.prefix(maxRows - 1))
+            list.append(FlowEntry(id: "more-later", title: "+\(hidden) more later", isMore: true))
+        }
+        return list.reversed()
     }
 
-    private func waitingBlock(_ r: Routine) -> FlowBlock {
-        var detail = r.trigger.windowLabel ?? ""
-        if r.trigger.kind == .place && r.trigger.place != nil {
-            detail += detail.isEmpty ? "Starts when you arrive" : " · on arrival"
+    /// Done today, most recent first, right under the task.
+    private func doneEntries() -> [FlowEntry] {
+        let completions: [Completion] = store.completions(on: Day.today).reversed()
+        var list: [FlowEntry] = completions.map { c in
+            var parts: [String] = [Day.clock(c.at), store.type(c.typeID).name]
+            if c.isRoutine && c.finishedWhole { parts.append("routine finished") }
+            if c.earnedToken { parts.append("+1 token") }
+            return FlowEntry(id: c.id.uuidString, title: c.title, meta: parts.joined(separator: " · "), done: true)
         }
-        let nodes: [FlowNode] = r.steps.enumerated().map { (p: EnumeratedSequence<[Step]>.Element) -> FlowNode in
-            let j = p.offset, s = p.element
-            return FlowNode(id: r.id.uuidString + "#" + String(j), title: s.title, meta: nodeMeta(s),
-                     color: store.type(s.typeID).color, isCurrent: false, done: false)
+        if list.count > maxRows && maxRows > 1 {
+            let hidden = list.count - (maxRows - 1)
+            list = Array(list.prefix(maxRows - 1))
+            list.append(FlowEntry(id: "more-earlier", title: "+\(hidden) earlier", isMore: true))
         }
-        return FlowBlock(id: "wait-" + r.id.uuidString, header: r.trigger.label, symbol: r.trigger.kind.symbol,
-                         detail: detail.isEmpty ? nil : detail, nodes: nodes)
+        return list
     }
 
-    private func nodeMeta(_ s: Step) -> String? {
+    private func meta(_ s: Step) -> String {
         var parts: [String] = [store.type(s.typeID).name]
         if let l = s.limitText { parts.append(l) }
         return parts.joined(separator: " · ")
     }
-
-    // MARK: Done
-
-    @ViewBuilder
-    private var done: some View {
-        let list = store.completions(on: Day.today)
-        if list.isEmpty {
-            Text("Nothing finished yet today. The first one is the hardest.")
-                .font(.system(size: 15))
-                .foregroundStyle(.secondary)
-                .padding(.vertical, 12)
-        }
-        ForEach(Array(list.enumerated()), id: \.element.id) { i, c in
-            FlowRow(isFirst: i == 0, isLast: i == list.count - 1, lineColor: Theme.checkbox.opacity(0.5)) {
-                ZStack {
-                    Circle().fill(Theme.checkbox).frame(width: 18, height: 18)
-                    Image(systemName: "checkmark").font(.system(size: 9, weight: .bold)).foregroundStyle(.white)
-                }
-            } content: {
-                HStack(alignment: .firstTextBaseline) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(c.title)
-                            .font(.system(size: 16))
-                            .strikethrough()
-                            .foregroundStyle(.secondary)
-                        Text(doneMeta(c))
-                            .font(.system(size: 12))
-                            .foregroundStyle(.secondary)
-                    }
-                    Spacer()
-                    Text(Day.clock(c.at))
-                        .font(.system(size: 13).monospacedDigit())
-                        .foregroundStyle(.secondary)
-                }
-            }
-            .accessibilityElement(children: .combine)
-        }
-    }
-
-    private func doneMeta(_ c: Completion) -> String {
-        var parts = [store.type(c.typeID).name]
-        if c.isRoutine && c.finishedWhole { parts.append("Routine finished") }
-        if c.earnedToken { parts.append("+1 token") }
-        return parts.joined(separator: " · ")
-    }
 }
 
-// MARK: - Flow pieces
-
-struct FlowNode: Identifiable {
+struct FlowEntry: Identifiable {
     let id: String
-    let title: String
-    let meta: String?
-    let color: Color
-    let isCurrent: Bool
-    let done: Bool
-}
-
-struct FlowBlock: Identifiable {
-    let id: String
-    let header: String
-    let symbol: String
-    let detail: String?
-    let nodes: [FlowNode]
-}
-
-/// One routine or task: a header box, then its steps joined by a line.
-struct FlowBlockView: View {
-    let block: FlowBlock
-    let accent: Color
-    let isFirstBlock: Bool
-    let isLastBlock: Bool
+    var title: String
+    var meta: String? = nil
+    var symbol: String = "circle"
+    var color: Color = .gray
+    var isHeader = false
+    var isMore = false
+    var done = false
     var dimmed = false
-    var start: (() -> Void)? = nil
-
-    var body: some View {
-        let line = Theme.checkbox.opacity(0.45)
-        VStack(alignment: .leading, spacing: 0) {
-            FlowRow(isFirst: isFirstBlock, isLast: isLastBlock && block.nodes.isEmpty, lineColor: line) {
-                Image(systemName: block.symbol)
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(dimmed ? Color.secondary : accent)
-                    .frame(width: 26, height: 26)
-                    .background(Theme.card2, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-            } content: {
-                HStack(spacing: 8) {
-                    VStack(alignment: .leading, spacing: 1) {
-                        Text(block.header).font(.system(size: 14, weight: .semibold))
-                        if let d = block.detail {
-                            Text(d).font(.system(size: 12)).foregroundStyle(.secondary)
-                        }
-                    }
-                    Spacer()
-                    if let start {
-                        Button("Start", action: start)
-                            .font(.system(size: 14, weight: .semibold))
-                            .foregroundStyle(accent)
-                            .frame(minWidth: 44, minHeight: 44)
-                            .buttonStyle(.borderless)
-                            .accessibilityLabel("Start " + block.header)
-                    }
-                }
-            }
-            ForEach(Array(block.nodes.enumerated()), id: \.element.id) { j, node in
-                FlowRow(isFirst: false, isLast: isLastBlock && j == block.nodes.count - 1, lineColor: line) {
-                    Circle()
-                        .strokeBorder(node.isCurrent ? accent : node.color, lineWidth: node.isCurrent ? 3 : 2)
-                        .background(Circle().fill(node.isCurrent ? accent.opacity(0.25) : Theme.card))
-                        .frame(width: node.isCurrent ? 18 : 14, height: node.isCurrent ? 18 : 14)
-                } content: {
-                    VStack(alignment: .leading, spacing: 2) {
-                        HStack(spacing: 6) {
-                            Text(node.title)
-                                .font(.system(size: 16, weight: node.isCurrent ? .semibold : .regular))
-                                .foregroundStyle(dimmed ? Color.secondary : Color.primary)
-                            if node.isCurrent {
-                                Text("Now")
-                                    .font(.system(size: 11, weight: .bold))
-                                    .foregroundStyle(accent)
-                                    .padding(.horizontal, 6)
-                                    .padding(.vertical, 2)
-                                    .background(accent.opacity(0.15), in: Capsule())
-                            }
-                        }
-                        if let meta = node.meta {
-                            Text(meta).font(.system(size: 12)).foregroundStyle(.secondary)
-                        }
-                    }
-                }
-                .accessibilityElement(children: .combine)
-            }
-        }
-    }
+    var startRoutine: UUID? = nil
 }
 
 /// A row of the flowchart: a node on a vertical line, and content beside it.
@@ -292,7 +205,7 @@ struct FlowRow<Node: View, Content: View>: View {
             }
             .frame(width: 28)
             content()
-                .padding(.vertical, 10)
+                .padding(.vertical, 8)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
         .fixedSize(horizontal: false, vertical: true)
