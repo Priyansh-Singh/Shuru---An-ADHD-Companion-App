@@ -12,6 +12,7 @@ struct HoursView: View {
     @EnvironmentObject var store: AppStore
     @State private var note = ""
     @State private var toast: String?
+    @State private var editing: HourEditRequest?
     @FocusState private var noteFocused: Bool
 
     private var accent: Color { Theme.accent(store.settings.palette) }
@@ -21,6 +22,10 @@ struct HoursView: View {
             content(now: context.date)
         }
         .animation(.easeOut(duration: 0.25), value: toast)
+        .sheet(item: $editing) { req in
+            HourEditor(hour: req.hour)
+                .presentationDetents([.medium, .large])
+        }
     }
 
     private func content(now: Date) -> some View {
@@ -99,10 +104,16 @@ struct HoursView: View {
             .frame(minHeight: 44)
             HStack(spacing: 3) {
                 ForEach(hours, id: \.self) { h in
-                    HourBlock(entry: store.entry(day: today, hour: h), isPast: h < hour, isNow: h == hour,
-                              color: store.entry(day: today, hour: h).map { store.type($0.typeID).color } ?? .clear,
-                              accent: accent)
-                        .accessibilityLabel(Day.hourLabel(h) + ": " + (store.entry(day: today, hour: h).map { store.type($0.typeID).name } ?? (h <= hour ? "not logged" : "later")))
+                    Button {
+                        editing = HourEditRequest(hour: h)
+                    } label: {
+                        HourBlock(entry: store.entry(day: today, hour: h), isPast: h < hour, isNow: h == hour,
+                                  color: store.entry(day: today, hour: h).map { store.type($0.typeID).color } ?? .clear,
+                                  accent: accent)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(Day.hourLabel(h) + ": " + (store.entry(day: today, hour: h).map { store.type($0.typeID).name } ?? (h <= hour ? "not logged" : "later")))
+                    .accessibilityHint("Log or change this hour")
                 }
             }
             .frame(height: 30)
@@ -131,6 +142,18 @@ struct HoursView: View {
         return Card(padding: EdgeInsets(top: 4, leading: 16, bottom: 14, trailing: 16)) {
             Text(title).font(.system(size: 16, weight: .semibold)).frame(minHeight: 44)
             if !pending.isEmpty {
+                TextField("What happened? (optional)", text: $note, axis: .vertical)
+                    .font(.system(size: 15))
+                    .lineLimit(1...4)
+                    .focused($noteFocused)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 10)
+                    .background(Theme.card2, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    .padding(.bottom, 10)
+                Text("Then pick what it was:")
+                    .font(.system(size: 13))
+                    .foregroundStyle(.secondary)
+                    .padding(.bottom, 6)
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 104), spacing: 8)], spacing: 8) {
                     ForEach(store.data.types) { t in
                         Button {
@@ -158,10 +181,6 @@ struct HoursView: View {
                     }
                     .buttonStyle(.plain)
                 }
-                TextField("Add a note (optional)", text: $note)
-                    .font(.system(size: 15))
-                    .focused($noteFocused)
-                    .padding(.top, 10)
             }
         }
     }
@@ -172,16 +191,27 @@ struct HoursView: View {
             return LoggedHour(hour: h, entry: e)
         }
         return Card {
-            CardHeader("Logged today")
+            CardHeader("Logged today") {
+                Button {
+                    editing = HourEditRequest(hour: Day.calendar.component(.hour, from: Date()))
+                } label: {
+                    Label("Log an hour", systemImage: "plus")
+                        .font(.system(size: 14, weight: .semibold))
+                }
+                .frame(minHeight: 44)
+                .padding(.horizontal, 8)
+            }
             if logged.isEmpty {
-                Text("Nothing yet. Pick what this hour is going to above.")
+                Text("Nothing yet. Tap an hour in Your day, or Log an hour.")
                     .font(.system(size: 14))
                     .foregroundStyle(.secondary)
                     .padding(.horizontal, 16)
                     .padding(.vertical, 8)
             }
             ForEach(logged) { pair in
-                LoggedHourRow(hour: pair.hour, entry: pair.entry, type: store.type(pair.entry.typeID))
+                LoggedHourRow(hour: pair.hour, entry: pair.entry, type: store.type(pair.entry.typeID)) {
+                    editing = HourEditRequest(hour: pair.hour)
+                }
             }
         }
     }
@@ -246,55 +276,151 @@ struct HourBlock: View {
     }
 }
 
-/// One logged hour: what happened first, the type underneath. Tap to see all of a long note.
+/// One logged hour: what happened first, the type underneath.
+/// Tap to edit it; the arrow shows all of a long note.
 struct LoggedHourRow: View {
     let hour: Int
     let entry: HourEntry
     let type: TaskType
+    let edit: () -> Void
     @State private var expanded = false
 
     private var mainText: String { entry.note.isEmpty ? type.name : entry.note }
     private var isLong: Bool { mainText.count > 38 }
 
     var body: some View {
-        Button {
-            guard isLong else { return }
-            withAnimation(.easeInOut(duration: 0.2)) { expanded.toggle() }
-        } label: {
-            HStack(alignment: .top, spacing: 12) {
-                Text(Day.hourLabel(hour))
-                    .font(.system(size: 13, weight: .medium).monospacedDigit())
-                    .foregroundStyle(.secondary)
-                    .frame(width: 50, alignment: .leading)
-                    .padding(.top, 2)
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(mainText)
-                        .font(.system(size: 16))
-                        .foregroundStyle(.primary)
-                        .lineLimit(expanded ? nil : 2)
-                        .multilineTextAlignment(.leading)
-                        .fixedSize(horizontal: false, vertical: true)
-                    HStack(spacing: 6) {
-                        TypeDot(color: type.color, size: 7)
-                        Text(type.name + (entry.auto ? " · logged automatically" : ""))
-                            .font(.system(size: 12))
-                            .foregroundStyle(.secondary)
+        HStack(alignment: .top, spacing: 4) {
+            Button(action: edit) {
+                HStack(alignment: .top, spacing: 12) {
+                    Text(Day.hourLabel(hour))
+                        .font(.system(size: 13, weight: .medium).monospacedDigit())
+                        .foregroundStyle(.secondary)
+                        .frame(width: 50, alignment: .leading)
+                        .padding(.top, 2)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(mainText)
+                            .font(.system(size: 16))
+                            .foregroundStyle(.primary)
+                            .lineLimit(expanded ? nil : 2)
+                            .multilineTextAlignment(.leading)
+                            .fixedSize(horizontal: false, vertical: true)
+                        HStack(spacing: 6) {
+                            TypeDot(color: type.color, size: 7)
+                            Text(type.name + (entry.auto ? " · logged automatically" : ""))
+                                .font(.system(size: 12))
+                                .foregroundStyle(.secondary)
+                        }
                     }
+                    Spacer(minLength: 0)
                 }
-                Spacer(minLength: 0)
-                if isLong {
+                .padding(.leading, 16)
+                .padding(.vertical, 10)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityElement(children: .combine)
+            .accessibilityHint("Double tap to edit")
+
+            if isLong {
+                Button {
+                    withAnimation(.easeInOut(duration: 0.2)) { expanded.toggle() }
+                } label: {
                     Image(systemName: expanded ? "chevron.up" : "chevron.down")
                         .font(.system(size: 12, weight: .semibold))
                         .foregroundStyle(.secondary)
-                        .padding(.top, 4)
+                        .frame(width: 44, height: 44)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(expanded ? "Show less" : "Show all")
+            } else {
+                Color.clear.frame(width: 16, height: 1)
+            }
+        }
+    }
+}
+
+struct HourEditRequest: Identifiable {
+    let hour: Int
+    var id: Int { hour }
+}
+
+/// Log or fix any hour of today by hand.
+struct HourEditor: View {
+    @EnvironmentObject var store: AppStore
+    @Environment(\.dismiss) private var dismiss
+    @State private var hour: Int
+    @State private var typeID: String?
+    @State private var note = ""
+    @State private var loaded = false
+    private let original: Int
+
+    init(hour: Int) {
+        _hour = State(initialValue: hour)
+        original = hour
+    }
+
+    var body: some View {
+        let existing = store.entry(day: Day.today, hour: original)
+        NavigationStack {
+            Form {
+                Picker("Hour", selection: $hour) {
+                    ForEach(0..<24, id: \.self) { h in
+                        Text(Day.hourLabel(h) + "–" + Day.hourLabel(h + 1)).tag(h)
+                    }
+                }
+                Section("What happened") {
+                    TextField("e.g. Went down a YouTube hole, then cooked", text: $note, axis: .vertical)
+                        .lineLimit(2...8)
+                }
+                Section("Type") {
+                    ForEach(store.data.types + [store.type(TaskType.unknownID)]) { t in
+                        Button {
+                            typeID = t.id
+                        } label: {
+                            HStack {
+                                TypeDot(color: t.color, size: 10)
+                                Text(t.name).foregroundStyle(.primary)
+                                Spacer()
+                                if typeID == t.id {
+                                    Image(systemName: "checkmark").foregroundStyle(Theme.accent(store.settings.palette))
+                                }
+                            }
+                        }
+                        .accessibilityAddTraits(typeID == t.id ? .isSelected : [])
+                    }
+                }
+                if existing != nil {
+                    Section {
+                        Button("Clear this hour", role: .destructive) {
+                            store.clearHour(original)
+                            dismiss()
+                        }
+                    }
                 }
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 10)
-            .contentShape(Rectangle())
+            .navigationTitle(existing == nil ? "Log an hour" : "Edit hour")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Save") {
+                        guard let typeID else { return }
+                        if hour != original && existing != nil { store.clearHour(original) }
+                        store.setHour(hour, typeID: typeID, note: note)
+                        dismiss()
+                    }
+                    .disabled(typeID == nil)
+                    .fontWeight(.semibold)
+                }
+            }
         }
-        .buttonStyle(.plain)
-        .accessibilityElement(children: .combine)
-        .accessibilityHint(isLong ? (expanded ? "Double tap to show less" : "Double tap to show all") : "")
+        .onAppear {
+            guard !loaded else { return }
+            loaded = true
+            if let e = existing {
+                typeID = e.typeID
+                note = e.note
+            }
+        }
     }
 }

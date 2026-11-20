@@ -717,6 +717,18 @@ final class AppStore: ObservableObject {
         data.lastCheckIn = Date()
     }
 
+    /// Log or change one hour by hand.
+    func setHour(_ hour: Int, typeID: String, note: String, day: String = Day.today) {
+        var dayLog = data.hours[day] ?? [:]
+        dayLog[String(hour)] = HourEntry(typeID: typeID, note: note.trimmingCharacters(in: .whitespacesAndNewlines), auto: false)
+        data.hours[day] = dayLog
+        if day == Day.today { data.lastCheckIn = Date() }
+    }
+
+    func clearHour(_ hour: Int, day: String = Day.today) {
+        data.hours[day]?[String(hour)] = nil
+    }
+
     func entry(day: String, hour: Int) -> HourEntry? {
         data.hours[day]?[String(hour)]
     }
