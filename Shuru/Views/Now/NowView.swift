@@ -13,7 +13,6 @@ struct NowView: View {
     @Environment(\.colorScheme) private var scheme
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @ObservedObject private var visibility = PagerVisibility.shared
-    @State private var orbClock = OrbClock()
 
     @State private var pressStart: Date?
     @State private var releaseAt: Date?
@@ -51,14 +50,16 @@ struct NowView: View {
             let upReveal = Ease.clamp(Double((taskY - h * 0.44) / (h * 0.36)))
             let doneReveal = Ease.clamp(Double((h * 0.44 - taskY) / (h * 0.26)))
             ZStack {
-                // The orb has its own clock, so nothing else has to redraw with it every frame.
-                TimelineView(.animation(minimumInterval: nil, paused: !visibility.visible.contains(.now) || (reduceMotion && !isAnimating))) { context in
-                    let now = context.date
+                // The orb drifts on its own (Core Animation). This only redraws while it grows or bounces.
+                TimelineView(.animation(minimumInterval: nil, paused: !visibility.visible.contains(.now) || !isAnimating)) { context in
+                    let now = max(context.date, Date())
                     ZStack {
                         Theme.background.ignoresSafeArea()
 
                         OrbView(colors: Theme.orb(settings.palette, dark: dark), dark: dark, blur: settings.orbEdges.blur,
-                                time: reduceMotion ? 0 : orbClock.time(at: now, speed: settings.orbSpeed.factor * (store.data.breakUntil == nil ? 1 : 0.45)))
+                                speed: reduceMotion || !visibility.visible.contains(.now)
+                                    ? 0 : settings.orbSpeed.factor * (store.data.breakUntil == nil ? 1 : 0.45))
+                            .frame(width: 340, height: 340)
                             .scaleEffect(orbScale(now: now, fill: fillValue(at: now), empty: current == nil))
                             .animation(.easeInOut(duration: 3.2), value: store.breathPhase)
                             .position(orbPoint)
