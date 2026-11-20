@@ -202,8 +202,15 @@ struct ComposerView: View {
                 } else {
                     TextField(trigger.kind.placeholder, text: $trigger.text)
                 }
+                if trigger.isCue {
+                    Toggle("Only at certain times", isOn: windowOn.animation())
+                    if trigger.hasWindow {
+                        DatePicker("From", selection: windowTime(\.windowFrom, fallback: 16 * 60), displayedComponents: .hourAndMinute)
+                        DatePicker("Until", selection: windowTime(\.windowTo, fallback: 21 * 60), displayedComponents: .hourAndMinute)
+                    }
+                }
                 if trigger.kind == .place {
-                    PlacePicker(place: $trigger.place)
+                    PlacePicker(place: $trigger.place, locationAllowed: store.settings.useLocation)
                 }
             } header: {
                 Text("If…")
@@ -246,16 +253,45 @@ struct ComposerView: View {
     }
 
     private var whenFooter: String {
+        let window = trigger.windowLabel.map { " Outside " + $0 + ", arriving or a Shortcut won’t start it, but you can still tap Start." } ?? ""
         switch trigger.kind {
         case .time:
             return "You’ll get a reminder at this time."
         case .place:
-            return trigger.place == nil
-                ? "Save a location and Shuru starts this when you arrive. Or skip it and tap Start on Now or in Calendar when you get there."
-                : "Shuru starts this when you arrive, and sends a notification. Your location stays on your phone."
+            return (trigger.place == nil
+                ? "This waits until you tap Start on Now or in Calendar. Turn on “Start when I arrive” if you want your phone to notice for you."
+                : "Shuru starts this when you arrive and sends a notification. Your location stays on your phone.") + window
         default:
-            return "This waits until you start it: tap Start on Now or in Calendar when it happens, or use a Shortcut."
+            return "This waits until you tap Start on Now or in Calendar, or run it from a Shortcut." + window
         }
+    }
+
+    private var windowOn: Binding<Bool> {
+        Binding(
+            get: { trigger.hasWindow },
+            set: { on in
+                if on {
+                    trigger.windowFrom = 16 * 60
+                    trigger.windowTo = 21 * 60
+                } else {
+                    trigger.windowFrom = nil
+                    trigger.windowTo = nil
+                }
+            }
+        )
+    }
+
+    private func windowTime(_ key: WritableKeyPath<Trigger, Int?>, fallback: Int) -> Binding<Date> {
+        Binding(
+            get: {
+                let m = trigger[keyPath: key] ?? fallback
+                return Day.calendar.date(bySettingHour: m / 60, minute: m % 60, second: 0, of: Date()) ?? Date()
+            },
+            set: { d in
+                let c = Day.calendar.dateComponents([.hour, .minute], from: d)
+                trigger[keyPath: key] = (c.hour ?? 0) * 60 + (c.minute ?? 0)
+            }
+        )
     }
 
     private var triggerTime: Binding<Date> {
@@ -519,12 +555,27 @@ struct DaysPicker: View {
 
 struct PlacePicker: View {
     @Binding var place: SavedPlace?
+    let locationAllowed: Bool
     @State private var locating = false
     @State private var problem: String?
+    @State private var wantsArrival = false
 
     private let radii: [Double] = [100, 150, 300, 500]
 
     var body: some View {
+        Toggle(isOn: Binding(get: { place != nil || wantsArrival }, set: { on in
+            wantsArrival = on
+            if on { if place == nil { locate() } } else { place = nil; problem = nil }
+        })) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Start when I arrive")
+                Text("Optional. Uses your location.").font(.system(size: 13)).foregroundStyle(.secondary)
+            }
+        }
+        if !locationAllowed && place != nil {
+            Text("Location is turned off in Settings › Reminders, so this won’t start by itself.")
+                .font(.system(size: 13)).foregroundStyle(.secondary)
+        }
         if let p = place {
             HStack {
                 Label("Location saved", systemImage: "mappin.circle.fill")
@@ -539,7 +590,7 @@ struct PlacePicker: View {
             Button(locating ? "Finding you…" : "Update to where I am now", action: locate)
                 .disabled(locating)
             Button("Remove location", role: .destructive) { place = nil }
-        } else {
+        } else if wantsArrival {
             Button(action: locate) {
                 Label(locating ? "Finding you…" : "Use my current location", systemImage: "location")
             }
@@ -556,7 +607,8 @@ struct PlacePicker: View {
         Places.shared.requestCurrentLocation { loc in
             locating = false
             guard let loc else {
-                problem = "Couldn’t get your location. Allow location for Shuru in Settings › Privacy › Location Services."
+                problem = "Couldn’t get your location. Allow location for Shuru in Settings › Privacy › Location Services, or leave this off and tap Start yourself."
+                wantsArrival = false
                 return
             }
             place = SavedPlace(latitude: loc.coordinate.latitude, longitude: loc.coordinate.longitude, radius: place?.radius ?? 150)

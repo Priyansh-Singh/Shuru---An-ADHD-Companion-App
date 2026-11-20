@@ -101,7 +101,7 @@ final class Places: NSObject, CLLocationManagerDelegate {
         guard region.identifier.hasPrefix(Places.prefix),
               let id = UUID(uuidString: String(region.identifier.dropFirst(Places.prefix.count))) else { return }
         DispatchQueue.main.async {
-            AppStore.shared.cueHappened(routineID: id, announce: true)
+            AppStore.shared.cueHappened(routineID: id, announce: true, automatic: true)
         }
     }
 }

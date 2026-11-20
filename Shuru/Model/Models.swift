@@ -118,9 +118,27 @@ struct Trigger: Codable, Hashable {
     var minute: Int = 0
     /// For .place: where to notice you arriving. nil = start it yourself.
     var place: SavedPlace? = nil
+    /// Optional window (minutes of the day) in which the cue counts, e.g. 16:00–21:00.
+    var windowFrom: Int? = nil
+    var windowTo: Int? = nil
 
     /// Cue-based routines (place, after, feeling, app) wait until the cue happens.
     var isCue: Bool { kind != .time }
+
+    var hasWindow: Bool { windowFrom != nil && windowTo != nil }
+
+    /// True if there is no window, or `date` falls inside it. Windows may cross midnight.
+    func inWindow(_ date: Date = Date()) -> Bool {
+        guard let from = windowFrom, let to = windowTo, from != to else { return true }
+        let c = Day.calendar.dateComponents([.hour, .minute], from: date)
+        let m = (c.hour ?? 0) * 60 + (c.minute ?? 0)
+        return from < to ? (m >= from && m < to) : (m >= from || m < to)
+    }
+
+    var windowLabel: String? {
+        guard let from = windowFrom, let to = windowTo, from != to else { return nil }
+        return Day.clock(hour: from / 60, minute: from % 60) + "–" + Day.clock(hour: to / 60, minute: to % 60)
+    }
 
     var label: String {
         if kind == .time { return "At " + Day.clock(hour: hour, minute: minute) }
@@ -331,6 +349,8 @@ struct AppSettings: Codable, Hashable {
     var chime: Chime = .silent
     var autoLog = true
     var remindRoutines = true
+    /// Lets place routines start by themselves when you arrive.
+    var useLocation = true
 }
 
 // MARK: - Everything that is saved

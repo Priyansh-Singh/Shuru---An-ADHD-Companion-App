@@ -17,7 +17,7 @@ struct RootView: View {
             .tabViewStyle(.page(indexDisplayMode: .never))
             .ignoresSafeArea(.container, edges: .bottom)
 
-            if store.settings.showDots && store.pauseStage == nil {
+            if store.settings.showDots && store.pauseStage == nil && !(store.nowPanelOpen && store.page == .now) {
                 PageDots(pages: pages, current: store.page) { p in
                     withAnimation(.easeOut(duration: 0.3)) { store.page = p }
                 }

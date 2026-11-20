@@ -23,6 +23,7 @@ struct NowView: View {
     @State private var hintVisible = true
     @State private var buzz: Task<Void, Never>?
     @State private var finishing = false
+    @State private var panel: DayFlowPanel.Kind?
 
     private let fillDelay = 0.12
     private var dark: Bool { scheme == .dark }
@@ -34,6 +35,7 @@ struct NowView: View {
         let current = heldItem ?? store.queue().first
         GeometryReader { geo in
             let center = CGPoint(x: geo.size.width / 2, y: geo.size.height * 0.44)
+            ZStack {
             TimelineView(.animation(minimumInterval: nil, paused: reduceMotion && !isAnimating)) { context in
                 let now = context.date
                 let fill = fillValue(at: now)
@@ -77,6 +79,27 @@ struct NowView: View {
                     }
                 }
             }
+
+            if store.pauseStage == nil && panel == nil && celebration == nil {
+                flowHandles(height: geo.size.height)
+            }
+
+            if let panel {
+                Color.black.opacity(0.35)
+                    .ignoresSafeArea()
+                    .onTapGesture { setPanel(nil) }
+                    .accessibilityHidden(true)
+                    .transition(.opacity)
+                DayFlowPanel(kind: panel) { setPanel(nil) }
+                    .frame(maxHeight: geo.size.height * 0.8)
+                    .frame(maxHeight: .infinity, alignment: panel == .upcoming ? .top : .bottom)
+                    .padding(.top, panel == .upcoming ? 4 : 0)
+                    .padding(.bottom, panel == .done ? 8 : 0)
+                    .transition(.move(edge: panel == .upcoming ? .top : .bottom))
+                    .zIndex(2)
+            }
+            }
+            .simultaneousGesture(flowSwipe)
         }
         .sheet(item: $optionsItem) { item in
             OptionsSheet(item: item, holdMode: holdMode) { action in
@@ -85,10 +108,81 @@ struct NowView: View {
             .presentationDetents([.medium, .large])
             .presentationDragIndicator(.visible)
         }
+        .onDisappear {
+            if panel != nil {
+                panel = nil
+                store.nowPanelOpen = false
+            }
+        }
         .onAppear {
             hintVisible = true
             DispatchQueue.main.asyncAfter(deadline: .now() + 5) { hintVisible = false }
         }
+    }
+
+    // MARK: Day flow (pull down: coming up, pull up: done)
+
+    private func setPanel(_ p: DayFlowPanel.Kind?) {
+        withAnimation(.spring(response: 0.42, dampingFraction: 0.86)) { panel = p }
+        store.nowPanelOpen = p != nil
+    }
+
+    private var flowSwipe: some Gesture {
+        DragGesture(minimumDistance: 30)
+            .onEnded { v in
+                guard store.pauseStage == nil, pressStart == nil, celebration == nil else { return }
+                let dx = v.translation.width, dy = v.translation.height
+                guard abs(dy) > abs(dx) * 1.4 else { return }
+                if panel == nil {
+                    if dy > 70 { setPanel(.upcoming) } else if dy < -70 { setPanel(.done) }
+                } else if (panel == .upcoming && dy < -60) || (panel == .done && dy > 60) {
+                    setPanel(nil)
+                }
+            }
+    }
+
+    @ViewBuilder
+    private func flowHandles(height: CGFloat) -> some View {
+        let queue = store.queue()
+        let comingCount = max(0, queue.count - 1) + store.cueRoutinesNotStarted().count
+        let doneCount = store.completions(on: Day.today).count
+        VStack {
+            Button {
+                setPanel(.upcoming)
+            } label: {
+                HStack(spacing: 6) {
+                    Text(comingCount == 0 ? "Coming up" : "\(comingCount) coming up")
+                    Image(systemName: "chevron.down").font(.system(size: 11, weight: .semibold))
+                }
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 14)
+                .frame(minHeight: 44)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Coming up today: \(comingCount)")
+            .accessibilityHint("Shows the rest of today’s routines and tasks")
+            .padding(.top, 6)
+            Spacer()
+            Button {
+                setPanel(.done)
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: "chevron.up").font(.system(size: 11, weight: .semibold))
+                    Text(doneCount == 0 ? "Done today" : "\(doneCount) done today")
+                }
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 14)
+                .frame(minHeight: 44)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Done today: \(doneCount)")
+            .padding(.bottom, 128)
+        }
+        .frame(height: height)
     }
 
     // MARK: Layers

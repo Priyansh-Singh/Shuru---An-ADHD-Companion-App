@@ -262,7 +262,11 @@ struct CalendarView: View {
                         }
                         Spacer()
                         if day == today {
-                            if r.trigger.isCue && !store.hasStarted(r) {
+                            if r.trigger.isCue && !store.hasStarted(r) && !r.trigger.inWindow(), let w = r.trigger.windowLabel {
+                                Text(w)
+                                    .font(.system(size: 13, weight: .semibold))
+                                    .foregroundStyle(.secondary)
+                            } else if r.trigger.isCue && !store.hasStarted(r) {
                                 Button("Start") { store.cueHappened(routineID: r.id, announce: false) }
                                     .font(.system(size: 14, weight: .semibold))
                                     .foregroundStyle(accent)

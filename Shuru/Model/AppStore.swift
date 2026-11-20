@@ -68,6 +68,8 @@ final class AppStore: ObservableObject {
     @Published var pauseStage: PauseStage? = nil
     @Published var breathPhase: BreathPhase? = nil
     @Published var timer: RunningTimer? = nil
+    /// True while the Coming up / Done panel is open on Now (hides the page dots).
+    @Published var nowPanelOpen = false
     @Published var activeLog: (itemID: String, startHour: Int)? = nil
 
     private var saveWork: DispatchWorkItem?
@@ -137,7 +139,7 @@ final class AppStore: ObservableObject {
         let work = DispatchWorkItem { [weak self] in
             self?.saveNow()
             Notifications.reschedule(for: self?.data)
-            if let routines = self?.data.routines { Places.shared.sync(routines: routines) }
+            if let d = self?.data { Places.shared.sync(routines: d.settings.useLocation ? d.routines : []) }
         }
         saveWork = work
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.6, execute: work)
@@ -154,7 +156,7 @@ final class AppStore: ObservableObject {
         normalizeTokens()
         Notifications.requestIfNeeded()
         Notifications.reschedule(for: data)
-        Places.shared.sync(routines: data.routines)
+        Places.shared.sync(routines: data.settings.useLocation ? data.routines : [])
         if let t = timer, Date() > t.end.addingTimeInterval(3600) { timer = nil }
     }
 
@@ -165,7 +167,7 @@ final class AppStore: ObservableObject {
         case "start":
             let items = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
             if let raw = items.first(where: { $0.name == "routine" })?.value, let id = UUID(uuidString: raw) {
-                cueHappened(routineID: id, announce: false)
+                cueHappened(routineID: id, announce: false, automatic: true)
             }
             go(to: .now)
         case "hours": go(to: .hours)
@@ -509,16 +511,23 @@ final class AppStore: ObservableObject {
         return data.started[base] != nil || (data.progress[base] ?? 0) > 0
     }
 
-    /// Cue routines running today that haven't started yet.
-    func waitingRoutines(day: String = Day.today) -> [Routine] {
+    /// Cue routines running today that haven't started yet (any time of day).
+    func cueRoutinesNotStarted(day: String = Day.today) -> [Routine] {
         routines(on: day).filter { $0.trigger.isCue && !hasStarted($0, day: day) && !$0.steps.isEmpty }
     }
 
+    /// Cue routines you could start right now (inside their time window, if they have one).
+    func waitingRoutines(day: String = Day.today) -> [Routine] {
+        cueRoutinesNotStarted(day: day).filter { $0.trigger.inWindow() }
+    }
+
     /// The cue happened: arrived home, tapped Start, or a Shortcut ran.
-    func cueHappened(routineID: UUID, announce: Bool) {
+    /// Automatic starts (arriving, Shortcuts) are ignored outside the routine's time window; a tap always works.
+    func cueHappened(routineID: UUID, announce: Bool, automatic: Bool = false) {
         let day = Day.today
         guard let r = data.routines.first(where: { $0.id == routineID }),
               r.enabled, r.runs(on: day), !r.steps.isEmpty, !hasStarted(r, day: day) else { return }
+        if automatic && !r.trigger.inWindow() { return }
         let base = "r:" + r.id.uuidString + "@" + day
         data.started[base] = Date()
         data.notNow[day]?.removeAll { $0 == base }

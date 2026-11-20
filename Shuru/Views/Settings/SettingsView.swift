@@ -111,10 +111,13 @@ struct SettingsView: View {
 
             Section {
                 Toggle("Remind me of timed routines", isOn: $store.data.settings.remindRoutines)
+                Toggle(isOn: $store.data.settings.useLocation) {
+                    labeled("Start place routines when I arrive", "Only for routines where you turned on “Start when I arrive”")
+                }
             } header: {
                 Text("Reminders")
             } footer: {
-                Text("Reminders are local, so they work even when the app is sideloaded.")
+                Text("Reminders are local, so they work even when the app is sideloaded. Location never leaves your phone.")
             }
 
             Section {

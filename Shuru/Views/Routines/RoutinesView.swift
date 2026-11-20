@@ -227,6 +227,7 @@ struct RoutineRow: View {
 
     private func subtitle(type: TaskType) -> String {
         var parts = [routine.trigger.label, Day.daysLabel(routine.days), type.name]
+        if let w = routine.trigger.windowLabel { parts.append(w) }
         if routine.trigger.kind == .place && routine.trigger.place != nil { parts.append("Starts when you arrive") }
         if routine.steps.count > 1 { parts.append("\(routine.steps.count) steps") }
         if !routine.backup.isEmpty { parts.append("Backup: " + routine.backup) }
@@ -243,7 +244,7 @@ struct RoutineTemplate: Identifiable {
 
     static let all: [RoutineTemplate] = [
         RoutineTemplate(id: "home", name: "Home from work or class", detail: "Bath, dinner, then study", symbol: "house") {
-            Routine(trigger: Trigger(kind: .place, text: "When I get home"),
+            Routine(trigger: Trigger(kind: .place, text: "When I get home", windowFrom: 15 * 60, windowTo: 21 * 60),
                     steps: [Step(title: "Take a bath", smaller: "Just turn on the water", typeID: "care"),
                             Step(title: "Eat dinner", smaller: "Just heat something up", typeID: "care"),
                             Step(title: "Sit down to study", smaller: "Just open your notes", typeID: "study", minMinutes: 2, maxMinutes: 180)],
