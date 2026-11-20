@@ -131,6 +131,15 @@ struct NowView: View {
             flow = .rest
             dragY = 0
         }
+        .task(id: primeKey(current)) {
+            // "Before you start": breathe, look back, look ahead, once per task per day.
+            guard let item = current, settings.taskPause, store.page == .now, flow == .rest,
+                  celebration == nil, heldItem == nil, store.pauseStage == nil,
+                  !store.data.primed.contains(item.id) else { return }
+            try? await Task.sleep(nanoseconds: 700_000_000)
+            guard !Task.isCancelled, store.page == .now, celebration == nil, store.pauseStage == nil else { return }
+            store.startTaskPause(for: item)
+        }
         .onAppear {
             hintVisible = true
             DispatchQueue.main.asyncAfter(deadline: .now() + 5) { hintVisible = false }
@@ -257,6 +266,14 @@ struct NowView: View {
             .padding(.bottom, 128)
         }
         .frame(height: height)
+    }
+
+    private func primeKey(_ item: NowItem?) -> String {
+        [item?.id ?? "none",
+         celebration == nil ? "idle" : "party",
+         store.page == .now ? "here" : "away",
+         flow == .rest ? "rest" : "flow",
+         settings.taskPause ? "on" : "off"].joined(separator: "|")
     }
 
     // MARK: Layers

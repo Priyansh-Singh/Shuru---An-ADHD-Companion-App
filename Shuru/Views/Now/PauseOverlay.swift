@@ -21,6 +21,9 @@ struct PauseOverlay: View {
                 if let app = store.pauseApp, app.key != GuardedAppInfo.anyApp.key {
                     Text("You opened " + app.name).font(.system(size: 13, weight: .semibold))
                 }
+                if store.pauseForTask {
+                    Text("Before you start").font(.system(size: 13, weight: .semibold))
+                }
             }
             .foregroundStyle(Theme.orbSub(dark))
             .padding(.top, 24)
@@ -139,15 +142,39 @@ struct PauseOverlay: View {
                 .foregroundStyle(.secondary)
                 .frame(minHeight: 44)
         case .past, .future:
-            Button {
-                store.advancePause()
-            } label: {
-                Text(stage == .past ? "I remember" : "I can see it")
-                    .font(.system(size: 14, weight: .semibold))
-                    .frame(maxWidth: .infinity, minHeight: 48)
-                    .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+            if store.pauseForTask && store.isLastPauseStage(stage) {
+                VStack(spacing: 8) {
+                    Button {
+                        store.endPause()
+                    } label: {
+                        Text("Start it now")
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundStyle(Theme.onAccent(dark))
+                            .frame(maxWidth: .infinity, minHeight: 48)
+                            .background(Theme.accent(store.settings.palette), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    }
+                    .buttonStyle(.plain)
+                    notNowButton
+                }
+            } else {
+                VStack(spacing: 8) {
+                    Button {
+                        store.advancePause()
+                    } label: {
+                        Text(stage == .past ? "I remember" : "I can see it")
+                            .font(.system(size: 14, weight: .semibold))
+                            .frame(maxWidth: .infinity, minHeight: 48)
+                            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    }
+                    .buttonStyle(.plain)
+                    if store.pauseForTask {
+                        Button("Skip to the task") { store.endPause() }
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(.secondary)
+                            .frame(minHeight: 44)
+                    }
+                }
             }
-            .buttonStyle(.plain)
         case .say, .decide:
             VStack(spacing: 8) {
                 Button {
@@ -164,6 +191,19 @@ struct PauseOverlay: View {
                 unlockOptions
             }
         }
+    }
+
+    /// For the before-a-task pause: push this one later instead.
+    private var notNowButton: some View {
+        Button {
+            store.endPause()
+            if let item { store.notNow(item) }
+        } label: {
+            Text("Not now")
+                .font(.system(size: 13, weight: .semibold))
+                .frame(maxWidth: .infinity, minHeight: 44)
+        }
+        .buttonStyle(.plain)
     }
 
     // MARK: Spending tokens on the app

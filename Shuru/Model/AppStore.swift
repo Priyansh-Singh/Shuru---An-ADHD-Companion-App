@@ -161,6 +161,10 @@ final class AppStore: ObservableObject {
 
     func becameActive() {
         normalizeTokens()
+        let today = "@" + Day.today
+        if data.primed.contains(where: { !$0.contains(today) }) {
+            data.primed = data.primed.filter { $0.contains(today) }
+        }
         Notifications.requestIfNeeded()
         Notifications.reschedule(for: data)
         Places.shared.sync(routines: data.settings.useLocation ? data.routines : [])
@@ -201,6 +205,35 @@ final class AppStore: ObservableObject {
     }
 
     // MARK: Pause before scrolling
+
+    /// True when the pause is the "before you start" one for a task, not one for an app.
+    @Published var pauseForTask = false
+
+    var taskPauseStages: [PauseStage] {
+        let s = data.settings
+        var stages: [PauseStage] = []
+        if s.taskPauseBreath { stages.append(.breath) }
+        if s.taskPausePast { stages.append(.past) }
+        if s.taskPauseFuture { stages.append(.future) }
+        return stages
+    }
+
+    /// Runs once per task per day, when it becomes the next thing on Now.
+    func startTaskPause(for item: NowItem) {
+        guard data.settings.taskPause, pauseStage == nil, !data.primed.contains(item.id) else { return }
+        let stages = taskPauseStages
+        data.primed.insert(item.id)
+        guard let first = stages.first else { return }
+        pauseApp = nil
+        pauseForTask = true
+        breathPhase = nil
+        pauseStage = first
+    }
+
+    func isLastPauseStage(_ stage: PauseStage) -> Bool {
+        let stages = pauseForTask ? taskPauseStages : pauseStages
+        return stages.last == stage
+    }
 
     var pauseStages: [PauseStage] {
         let s = data.settings
@@ -256,6 +289,7 @@ final class AppStore: ObservableObject {
             return
         }
         pauseApp = app
+        pauseForTask = false
         page = .now
         breathPhase = nil
         pauseStage = pauseStages.first
@@ -320,9 +354,12 @@ final class AppStore: ObservableObject {
 
     func advancePause() {
         guard let current = pauseStage else { return }
-        let stages = pauseStages
+        let stages = pauseForTask ? taskPauseStages : pauseStages
         if let i = stages.firstIndex(of: current), i + 1 < stages.count {
             pauseStage = stages[i + 1]
+        } else if pauseForTask {
+            endPause()
+            return
         } else {
             pauseStage = .decide
         }
@@ -333,6 +370,7 @@ final class AppStore: ObservableObject {
         pauseStage = nil
         breathPhase = nil
         pauseApp = nil
+        pauseForTask = false
     }
 
     // MARK: Types

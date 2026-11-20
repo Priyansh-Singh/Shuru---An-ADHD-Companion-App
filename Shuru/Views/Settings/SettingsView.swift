@@ -86,6 +86,20 @@ struct SettingsView: View {
                     }
                     .padding(.leading, 16)
                 }
+                Toggle(isOn: $store.data.settings.taskPause.animation()) {
+                    labeled("Pause before every task", "Breathe, look back and look ahead each time a new task comes up")
+                }
+                if store.settings.taskPause {
+                    Toggle("Breathe in and out", isOn: $store.data.settings.taskPauseBreath).padding(.leading, 16)
+                    Toggle(isOn: $store.data.settings.taskPausePast) {
+                        labeled("Look back", "The last time you put off something like it")
+                    }
+                    .padding(.leading, 16)
+                    Toggle(isOn: $store.data.settings.taskPauseFuture) {
+                        labeled("Look ahead", "Picture it done")
+                    }
+                    .padding(.leading, 16)
+                }
                 Toggle(isOn: $store.data.settings.tokens.animation()) {
                     labeled("Tokens and rewards", "1 for each task or routine you finish")
                 }

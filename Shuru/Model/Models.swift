@@ -343,6 +343,12 @@ struct AppSettings: Codable, Hashable {
     /// Free 2-minute looks per day, for when you really just need to check one thing.
     var quickLooksPerDay = 3
 
+    /// Breathe, look back and look ahead before every new task on Now.
+    var taskPause = false
+    var taskPauseBreath = true
+    var taskPausePast = true
+    var taskPauseFuture = true
+
     var tokens = true
     var tokenCap = 8
     var tokenWeekly = true
@@ -397,6 +403,8 @@ struct AppData: Codable {
     var quickLooks: TokenDay? = nil
     /// Apps whose Shortcuts automation has run at least once.
     var seenApps: [String: SeenApp] = [:]
+    /// Now items that already had their "before you start" pause (ids include the day).
+    var primed: Set<String> = []
 }
 
 extension AppData {
