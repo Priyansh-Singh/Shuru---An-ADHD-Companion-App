@@ -17,6 +17,7 @@ struct CalendarView: View {
     @State private var picked: UUID?
     @State private var showDone = true
     @State private var composer: ComposerRequest?
+    @State private var goalEdit: GoalEditRequest?
     @FocusState private var draftFocused: Bool
 
     private var today: String { Day.today }
@@ -27,6 +28,7 @@ struct CalendarView: View {
             PageScroll {
                 header
                 WeekStrip(selected: $selected, mode: $mode)
+                GoalsCard(month: Day.monthKey(selected)) { goalEdit = $0 }
                 if mode == .day {
                     if selected == today {
                         todayContent
@@ -45,6 +47,9 @@ struct CalendarView: View {
         }
         .sheet(item: $composer) { req in
             ComposerView(request: req)
+        }
+        .sheet(item: $goalEdit) { req in
+            GoalEditor(request: req)
         }
     }
 
@@ -422,6 +427,9 @@ struct TaskRow: View {
         if let days = task.repeatDays { parts.append(Day.daysLabel(days)) }
         parts.append(type.name)
         if task.steps.count > 1 { parts.append("\(task.steps.count) steps") }
+        if let g = store.goal(task.goalID) {
+            parts.append("Goal: " + (g.title.count > 26 ? String(g.title.prefix(25)) + "…" : g.title))
+        }
         return parts.joined(separator: " · ")
     }
 }

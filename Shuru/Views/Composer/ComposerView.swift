@@ -67,6 +67,8 @@ struct ComposerView: View {
     @State private var confirmDelete = false
     @State private var savedTemplate = false
     @State private var copiedLink = false
+    @State private var goalID: UUID?
+    @State private var newGoal: GoalEditRequest?
     @FocusState private var focusedStep: UUID?
 
     private var editing: Bool { !request.prefill && (request.task != nil || request.routine != nil) }
@@ -122,6 +124,7 @@ struct ComposerView: View {
 
                 whenSection
                 repeatSection
+                if !request.asTemplate { goalSection }
 
                 if mode == .routine {
                     Section("If it doesn’t happen") {
@@ -169,6 +172,9 @@ struct ComposerView: View {
             }
             .confirmationDialog("Delete this for good?", isPresented: $confirmDelete, titleVisibility: .visible) {
                 Button("Delete", role: .destructive) { deleteExisting() }
+            }
+            .sheet(item: $newGoal) { req in
+                GoalEditor(request: req, showTags: false) { g in goalID = g.id }
             }
         }
         .onAppear(perform: load)
@@ -264,6 +270,45 @@ struct ComposerView: View {
         }
     }
 
+    /// Goals for the month this lands in: the task's day, or this month for anything that repeats.
+    private var goalMonth: String {
+        mode == .task && repeatChoice == .once ? Day.monthKey(Day.key(date)) : Day.monthKey(Day.today)
+    }
+
+    @ViewBuilder
+    private var goalSection: some View {
+        let goals = store.goals(in: goalMonth)
+        let chosen = store.goal(goalID)
+        Section {
+            if goals.isEmpty && chosen == nil {
+                Button {
+                    newGoal = GoalEditRequest(goal: nil, month: goalMonth)
+                } label: {
+                    Label("Set a goal for " + Day.monthName(goalMonth), systemImage: "scope")
+                }
+            } else {
+                Picker("Moves", selection: $goalID) {
+                    Text("No goal").tag(UUID?.none)
+                    ForEach(goals) { g in Text(g.title).tag(UUID?.some(g.id)) }
+                    if let c = chosen, !goals.contains(where: { $0.id == c.id }) {
+                        Text(c.title + " (" + Day.monthName(c.month) + ")").tag(UUID?.some(c.id))
+                    }
+                }
+                if goals.count < 3 {
+                    Button {
+                        newGoal = GoalEditRequest(goal: nil, month: goalMonth)
+                    } label: {
+                        Label("New goal for " + Day.monthName(goalMonth), systemImage: "plus")
+                    }
+                }
+            }
+        } header: {
+            Text("Monthly goal")
+        } footer: {
+            Text("Optional. Each step you finish counts toward it, and shows up in the month review.")
+        }
+    }
+
     private var whenFooter: String {
         let window = trigger.windowLabel.map { " Outside " + $0 + ", arriving or a Shortcut won’t start it, but you can still tap Start." } ?? ""
         switch trigger.kind {
@@ -335,6 +380,7 @@ struct ComposerView: View {
                 time = Day.calendar.date(bySettingHour: h, minute: t.timeMinute, second: 0, of: Date()) ?? Date()
             }
             effort = t.effort
+            goalID = t.goalID
             repeatChoice = RepeatChoice.from(t.repeatDays)
             days = t.repeatDays ?? Set(1...7)
         } else if let r = request.routine {
@@ -346,6 +392,7 @@ struct ComposerView: View {
             backup = r.backup
             breather = r.breatherMinutes
             routineName = r.name ?? ""
+            goalID = request.prefill ? nil : r.goalID
         } else {
             repeatChoice = request.mode == .routine ? .everyDay : .once
             focusedStep = steps.first?.id
@@ -388,6 +435,7 @@ struct ComposerView: View {
                 t.timeMinute = 0
             }
             t.effort = effort
+            t.goalID = goalID
             store.upsert(task: t)
         } else {
             var r = request.routine ?? Routine()
@@ -398,6 +446,7 @@ struct ComposerView: View {
             r.breatherMinutes = breather
             let n = routineName.trimmingCharacters(in: .whitespaces)
             r.name = n.isEmpty ? nil : n
+            r.goalID = request.asTemplate ? nil : goalID
             if request.asTemplate {
                 store.upsert(template: r)
             } else {

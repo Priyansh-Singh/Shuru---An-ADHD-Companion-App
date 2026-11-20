@@ -22,6 +22,9 @@ struct RootView: View {
         .onChange(of: pages) { _, newPages in
             if !newPages.contains(store.page) { store.page = .now }
         }
+        .sheet(item: $store.monthReview) { req in
+            MonthReviewView(month: req.month)
+        }
     }
 
     @ViewBuilder

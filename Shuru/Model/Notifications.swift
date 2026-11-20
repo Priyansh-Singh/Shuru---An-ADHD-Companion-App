@@ -94,7 +94,7 @@ enum Notifications {
         center.getPendingNotificationRequests { pending in
             let ours = pending.map(\.identifier).filter {
                 $0.hasPrefix("shuru.checkin.") || $0.hasPrefix("shuru.routine.") || $0.hasPrefix("shuru.task.")
-                    || $0 == "shuru.review"
+                    || $0 == "shuru.review" || $0 == "shuru.monthreview"
             }
             center.removePendingNotificationRequests(withIdentifiers: ours)
             var requests: [UNNotificationRequest] = []
@@ -165,6 +165,24 @@ enum Notifications {
                 dc.minute = 0
                 requests.insert(UNNotificationRequest(identifier: "shuru.review", content: content,
                                                       trigger: UNCalendarNotificationTrigger(dateMatching: dc, repeats: true)), at: 0)
+            }
+
+            // Month review, on the last evening of a month that has goals
+            let month = Day.monthKey(Day.today)
+            if s.reviewReminder && data.goals.contains(where: { $0.month == month }) {
+                var dc = Day.calendar.dateComponents([.year, .month], from: Day.date(month + "-01"))
+                dc.day = Day.daysIn(month: month)
+                dc.hour = 19
+                dc.minute = 30
+                if let fire = Day.calendar.date(from: dc), fire > Date() {
+                    let content = UNMutableNotificationContent()
+                    content.title = Day.monthName(month) + " in review"
+                    content.body = "See what moved toward your goals, and keep any of them going."
+                    content.sound = .default
+                    content.userInfo = ["month": month]
+                    requests.insert(UNNotificationRequest(identifier: "shuru.monthreview", content: content,
+                                                          trigger: UNCalendarNotificationTrigger(dateMatching: dc, repeats: false)), at: 0)
+                }
             }
 
             // iOS keeps at most 64 pending notifications per app.

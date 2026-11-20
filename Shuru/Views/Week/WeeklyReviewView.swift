@@ -5,7 +5,7 @@ struct WeeklyReviewView: View {
     @EnvironmentObject var store: AppStore
     @Environment(\.dismiss) private var dismiss
 
-    enum ReviewStep: Int, CaseIterable { case lookBack, slipping, focus, done }
+    enum ReviewStep: Int, CaseIterable { case lookBack, slipping, goals, focus, done }
 
     @Environment(\.colorScheme) private var scheme
     @State private var step: ReviewStep = .lookBack
@@ -13,6 +13,9 @@ struct WeeklyReviewView: View {
     @State private var earned = false
     @State private var composer: ComposerRequest?
     @State private var loaded = false
+    @State private var goalSteps: [UUID: String] = [:]
+    @State private var goalDays: [UUID: String] = [:]
+    @State private var addedSteps = 0
 
     private var accent: Color { Theme.accent(store.settings.palette) }
 
@@ -24,6 +27,7 @@ struct WeeklyReviewView: View {
                     switch step {
                     case .lookBack: lookBack
                     case .slipping: slipping
+                    case .goals: goalsStep
                     case .focus: focusStep
                     case .done: doneStep
                     }
@@ -60,11 +64,21 @@ struct WeeklyReviewView: View {
         .onAppear(perform: load)
     }
 
+    /// Goals for the week being planned (the month most of it falls in).
+    private var reviewGoals: [Goal] {
+        store.goals(in: Day.monthKey(Day.add(3, to: store.reviewTargetWeek())))
+    }
+
+    private var shownSteps: [ReviewStep] {
+        ReviewStep.allCases.filter { $0 != .goals || !reviewGoals.isEmpty }
+    }
+
     private var progressDots: some View {
-        HStack(spacing: 6) {
-            ForEach(ReviewStep.allCases, id: \.rawValue) { s in
+        let at = shownSteps.firstIndex(of: step) ?? 0
+        return HStack(spacing: 6) {
+            ForEach(Array(shownSteps.enumerated()), id: \.offset) { pair in
                 Capsule()
-                    .fill(s.rawValue <= step.rawValue ? accent : Theme.checkbox.opacity(0.4))
+                    .fill(pair.offset <= at ? accent : Theme.checkbox.opacity(0.4))
                     .frame(height: 4)
             }
         }
@@ -163,13 +177,92 @@ struct WeeklyReviewView: View {
         .buttonStyle(.plain)
     }
 
-    // MARK: 3. Focus
+    // MARK: 3. Goals
+
+    private var planDays: [String] {
+        let start = store.reviewTargetWeek()
+        let today = Day.today
+        return (0..<7).map { Day.add($0, to: start) }.filter { $0 >= today }
+    }
+
+    private var goalsStep: some View {
+        let days = planDays
+        let isNext = store.reviewTargetWeek() != store.weekStart()
+        return VStack(alignment: .leading, spacing: 14) {
+            Text("One step toward each goal").font(.system(size: 24, weight: .bold))
+            Text("Small enough to actually do. It becomes a task on the day you pick" + (isNext ? " next week." : "."))
+                .font(.system(size: 15))
+                .foregroundStyle(.secondary)
+            ForEach(reviewGoals) { g in
+                goalPlanner(g, days: days)
+            }
+            Text("Leave any blank to skip it this week.")
+                .font(.system(size: 13))
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private func goalPlanner(_ g: Goal, days: [String]) -> some View {
+        let planned = store.data.tasks.filter { $0.goalID == g.id && !$0.isRepeating && days.contains($0.date) && !$0.isDone(on: $0.date) }
+        let chosenDay = goalDays[g.id] ?? days.first ?? Day.today
+        return VStack(alignment: .leading, spacing: 10) {
+            Text(g.title).font(.system(size: 17, weight: .semibold))
+            Text(store.progressText(g)).font(.system(size: 13)).foregroundStyle(.secondary)
+            if !planned.isEmpty {
+                Text("Already planned: " + planned.map { $0.title + " (" + Day.shortWeekdays[Day.weekday($0.date) - 1] + ")" }.joined(separator: ", "))
+                    .font(.system(size: 13))
+                    .foregroundStyle(.secondary)
+            }
+            TextField("One step, e.g. 10 practice problems", text: Binding(
+                get: { goalSteps[g.id] ?? "" },
+                set: { goalSteps[g.id] = $0 }
+            ), axis: .vertical)
+                .font(.system(size: 16))
+                .padding(12)
+                .background(Theme.card2, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 6) {
+                    ForEach(days, id: \.self) { d in
+                        let on = d == chosenDay
+                        Button {
+                            goalDays[g.id] = d
+                        } label: {
+                            Text(Day.shortWeekdays[Day.weekday(d) - 1] + " \(Day.dayNumber(d))")
+                                .font(.system(size: 14, weight: .semibold))
+                                .foregroundStyle(on ? Theme.onAccent(scheme == .dark) : .primary)
+                                .padding(.horizontal, 12)
+                                .frame(minHeight: 40)
+                                .background(on ? accent : Theme.card2, in: Capsule())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityAddTraits(on ? .isSelected : [])
+                    }
+                }
+            }
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Theme.card, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+    }
+
+    private func addGoalSteps() {
+        let days = planDays
+        for g in reviewGoals {
+            let text = (goalSteps[g.id] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !text.isEmpty else { continue }
+            store.addGoalStep(g, title: text, day: goalDays[g.id] ?? days.first ?? Day.today)
+            addedSteps += 1
+        }
+        goalSteps = [:]
+    }
+
+    // MARK: 4. Focus
 
     private var focusStep: some View {
         let target = store.reviewTargetWeek()
         let isNext = target != store.weekStart()
-        let suggestions = store.data.tasks
-            .filter { !$0.isRepeating && !$0.isDone(on: Day.today) }
+        let open = store.data.tasks.filter { !$0.isRepeating && !$0.isDone(on: Day.today) }
+        let suggestions = (open.filter { $0.goalID != nil } + open.filter { $0.goalID == nil })
             .map(\.title)
             .filter { !focuses.contains($0) }
             .prefix(6)
@@ -195,7 +288,7 @@ struct WeeklyReviewView: View {
         }
     }
 
-    // MARK: 4. Done
+    // MARK: 5. Done
 
     private var doneStep: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -203,6 +296,11 @@ struct WeeklyReviewView: View {
             Text(earned ? "+1 token for doing the review." : "Your focus is at the top of This week.")
                 .font(.system(size: 16, weight: .medium))
                 .foregroundStyle(earned ? accent : .secondary)
+            if addedSteps > 0 {
+                Text(addedSteps == 1 ? "1 goal step is on your calendar." : "\(addedSteps) goal steps are on your calendar.")
+                    .font(.system(size: 15))
+                    .foregroundStyle(.secondary)
+            }
             Text("You can redo it any time from This week.")
                 .font(.system(size: 14))
                 .foregroundStyle(.secondary)
@@ -223,7 +321,10 @@ struct WeeklyReviewView: View {
     private func next() {
         switch step {
         case .lookBack: withAnimation { step = .slipping }
-        case .slipping: withAnimation { step = .focus }
+        case .slipping: withAnimation { step = reviewGoals.isEmpty ? .focus : .goals }
+        case .goals:
+            addGoalSteps()
+            withAnimation { step = .focus }
         case .focus:
             earned = store.saveReview(focuses: focuses)
             withAnimation { step = .done }

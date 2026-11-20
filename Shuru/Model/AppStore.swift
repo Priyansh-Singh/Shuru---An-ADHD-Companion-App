@@ -74,6 +74,8 @@ final class AppStore: ObservableObject {
     @Published var pauseApp: GuardedAppInfo? = nil
     /// A short message shown at the top of Now.
     @Published var banner: String? = nil
+    /// The month review to show, if one was asked for (from Calendar, This week or a notification).
+    @Published var monthReview: MonthReviewRequest? = nil
     private var lastBounce: [String: Date] = [:]
     /// Which way the current swipe went (set by the pager, read by Now). Not published on purpose.
     var swipeAxis: SwipeAxis? = nil
@@ -568,6 +570,9 @@ final class AppStore: ObservableObject {
         var record = Completion(title: item.step.title, typeID: item.step.typeID, at: Date(), refID: item.refID,
                                 isRoutine: item.kind == .routine, stepIndex: item.stepIndex,
                                 finishedWhole: whole, earnedToken: earned)
+        record.goalID = recordGoal(tagged: item.kind == .task
+            ? data.tasks.first(where: { $0.id == item.refID })?.goalID
+            : data.routines.first(where: { $0.id == item.refID })?.goalID, day: Day.today)
         if let start = data.startedAt[item.id] {
             record.seconds = max(0, Int(Date().timeIntervalSince(start)))
             record.limitMin = item.step.minMinutes
@@ -687,9 +692,11 @@ final class AppStore: ObservableObject {
             data.tasks[i].doneDays.insert(doneKey)
             data.progress[base] = task.steps.count
             let earned = earnToken()
-            data.completions.append(Completion(title: task.title, typeID: task.typeID, at: Date(), refID: task.id,
-                                               isRoutine: false, stepIndex: max(0, task.steps.count - 1),
-                                               finishedWhole: true, earnedToken: earned))
+            var record = Completion(title: task.title, typeID: task.typeID, at: Date(), refID: task.id,
+                                    isRoutine: false, stepIndex: max(0, task.steps.count - 1),
+                                    finishedWhole: true, earnedToken: earned)
+            record.goalID = recordGoal(tagged: task.goalID, day: Day.today)
+            data.completions.append(record)
         }
     }
 
@@ -782,6 +789,129 @@ final class AppStore: ObservableObject {
             day = Day.add(1, to: day)
         }
         return (d, s)
+    }
+
+    // MARK: Monthly goals
+
+    func goals(in month: String) -> [Goal] {
+        data.goals.filter { $0.month == month }
+    }
+
+    func goal(_ id: UUID?) -> Goal? {
+        guard let id else { return nil }
+        return data.goals.first { $0.id == id }
+    }
+
+    func upsert(goal: Goal) {
+        if let i = data.goals.firstIndex(where: { $0.id == goal.id }) { data.goals[i] = goal } else { data.goals.append(goal) }
+    }
+
+    func delete(goal id: UUID) {
+        data.goals.removeAll { $0.id == id }
+        for i in data.tasks.indices where data.tasks[i].goalID == id { data.tasks[i].goalID = nil }
+        for i in data.routines.indices where data.routines[i].goalID == id { data.routines[i].goalID = nil }
+    }
+
+    /// Steps finished and hours timed toward a goal in its month.
+    func progress(_ g: Goal) -> (steps: Int, hours: Double) {
+        let done = data.completions.filter { $0.goalID == g.id && Day.monthKey($0.day) == g.month }
+        // Time on Now counts from when a step comes up, so cap each one to keep a forgotten task from inflating it.
+        let seconds = done.compactMap(\.seconds).map { Swift.min($0, 3 * 3600) }.reduce(0, +)
+        return (done.count, Double(seconds) / 3600)
+    }
+
+    /// 0...1 toward the minimum, if there is one.
+    func fraction(_ g: Goal) -> Double? {
+        guard let min = g.minimum, min > 0 else { return nil }
+        let p = progress(g)
+        let value = g.unit == .steps ? Double(p.steps) : p.hours
+        return Swift.min(1, value / Double(min))
+    }
+
+    /// "3 of 8 steps · 1 more to stay on pace", kindly worded.
+    func progressText(_ g: Goal) -> String {
+        let p = progress(g)
+        let have = g.unit == .steps ? "\(p.steps)" : String(format: "%.1f", p.hours)
+        guard let min = g.minimum, min > 0 else {
+            return g.unit == .steps ? "\(p.steps) step\(p.steps == 1 ? "" : "s") so far" : have + " h so far"
+        }
+        let unitWord = g.unit == .steps ? (min == 1 ? "step" : "steps") : "h"
+        var text = have + " of \(min) " + unitWord
+        let value = g.unit == .steps ? Double(p.steps) : p.hours
+        if value >= Double(min) { return text + " · minimum reached" }
+        if g.month == Day.monthKey(Day.today) {
+            let day = Double(Day.dayNumber(Day.today))
+            let pace = Double(min) * day / Double(Day.daysIn(month: g.month))
+            let behind = pace - value
+            if behind >= 1 {
+                let n = Int(behind.rounded(.up))
+                text += " · \(n) more " + (g.unit == .steps ? "" : "h ") + "to stay on pace"
+            } else {
+                text += " · on pace"
+            }
+        }
+        return text
+    }
+
+    /// Turns "one step toward the goal" into a normal task on a day you pick.
+    func addGoalStep(_ g: Goal, title: String, day: String) {
+        let t = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !t.isEmpty else { return }
+        var task = PlannedTask(steps: [Step(title: t, typeID: "other")], date: day)
+        task.goalID = recordGoal(tagged: g.id, day: day)
+        data.tasks.append(task)
+    }
+
+    /// The goal a finished step counts toward: the tagged goal, or its carried-over twin in that day's month.
+    func recordGoal(tagged: UUID?, day: String) -> UUID? {
+        guard let tagged, let g = goal(tagged) else { return nil }
+        let month = Day.monthKey(day)
+        if g.month == month { return g.id }
+        if let prev = g.carriedFrom, let p = goal(prev), p.month == month { return p.id }
+        if let next = data.goals.first(where: { $0.carriedFrom == g.id && $0.month == month }) { return next.id }
+        return g.id
+    }
+
+    /// Tags exactly these tasks and routines with a goal (and untags the rest that had it).
+    func setTags(goal id: UUID, items: Set<UUID>) {
+        for i in data.tasks.indices {
+            if items.contains(data.tasks[i].id) { data.tasks[i].goalID = id }
+            else if data.tasks[i].goalID == id { data.tasks[i].goalID = nil }
+        }
+        for i in data.routines.indices {
+            if items.contains(data.routines[i].id) { data.routines[i].goalID = id }
+            else if data.routines[i].goalID == id { data.routines[i].goalID = nil }
+        }
+    }
+
+    func isCarried(_ g: Goal) -> Bool { data.goals.contains { $0.carriedFrom == g.id } }
+
+    /// Keeps a goal going into another month. Open tasks and routines tagged with it follow.
+    @discardableResult
+    func carryOver(_ g: Goal, to month: String) -> Goal? {
+        if let existing = data.goals.first(where: { $0.month == month && ($0.carriedFrom == g.id || $0.title == g.title) }) {
+            return existing
+        }
+        guard goals(in: month).count < 3 else { return nil }
+        let n = Goal(title: g.title, month: month, minimum: g.minimum, unit: g.unit, carriedFrom: g.id)
+        data.goals.append(n)
+        for i in data.tasks.indices where data.tasks[i].goalID == g.id {
+            let t = data.tasks[i]
+            if t.isRepeating || !t.isDone(on: t.date) { data.tasks[i].goalID = n.id }
+        }
+        for i in data.routines.indices where data.routines[i].goalID == g.id { data.routines[i].goalID = n.id }
+        return n
+    }
+
+    /// Where carry-overs and "goals for next month" go from a month's review.
+    func nextGoalMonth(after month: String) -> String {
+        Swift.max(Day.addMonths(1, to: month), Day.monthKey(Day.today))
+    }
+
+    /// The last week of a month, when it's time to look back and ahead.
+    var monthIsEnding: Bool {
+        let today = Day.today
+        return Day.dayNumber(today) > Day.daysIn(month: Day.monthKey(today)) - 7
     }
 
     // MARK: Weekly review

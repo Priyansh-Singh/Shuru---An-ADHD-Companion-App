@@ -55,6 +55,26 @@ enum Day {
         mondayFirst ? [2, 3, 4, 5, 6, 7, 1] : [1, 2, 3, 4, 5, 6, 7]
     }
 
+    /// "yyyy-MM" for the month a day belongs to.
+    static func monthKey(_ key: String) -> String { String(key.prefix(7)) }
+
+    static func monthName(_ monthKey: String) -> String {
+        let parts = monthKey.split(separator: "-")
+        guard parts.count == 2, let m = Int(parts[1]), (1...12).contains(m) else { return monthKey }
+        return months[m - 1]
+    }
+
+    static func addMonths(_ n: Int, to monthKey: String) -> String {
+        let d = date(monthKey + "-01")
+        let moved = calendar.date(byAdding: .month, value: n, to: d) ?? d
+        return Day.monthKey(key(moved))
+    }
+
+    static func daysIn(month monthKey: String) -> Int {
+        let d = date(monthKey + "-01")
+        return calendar.range(of: .day, in: .month, for: d)?.count ?? 30
+    }
+
     static func dayNumber(_ key: String) -> Int {
         calendar.component(.day, from: date(key))
     }

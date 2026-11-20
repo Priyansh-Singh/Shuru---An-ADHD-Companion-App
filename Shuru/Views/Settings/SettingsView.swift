@@ -37,7 +37,7 @@ struct SettingsView: View {
                     Text("Monday").tag(true)
                 }
                 Toggle(isOn: $store.data.settings.reviewReminder) {
-                    labeled("Weekly review reminder", "7 pm on the last day of your week")
+                    labeled("Review reminders", "Weekly: 7 pm on the last day of your week. Monthly: 7:30 pm on the month’s last day, if it has goals.")
                 }
             }
 

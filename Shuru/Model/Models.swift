@@ -162,6 +162,8 @@ struct Routine: Codable, Identifiable, Hashable {
     var breatherMinutes: Int = 0
     /// Optional name, e.g. "Evening reset". Without one, the first step stands in.
     var name: String? = nil
+    /// The monthly goal this moves forward, if any.
+    var goalID: UUID? = nil
 
     var title: String {
         if let n = name?.trimmingCharacters(in: .whitespaces), !n.isEmpty { return n }
@@ -188,6 +190,8 @@ struct PlannedTask: Codable, Identifiable, Hashable {
     var effort: Int = 2
     var doneDays: Set<String> = []
     var created = Date()
+    /// The monthly goal this moves forward, if any.
+    var goalID: UUID? = nil
 
     var title: String { steps.first?.title ?? "Untitled" }
     var typeID: String { steps.first?.typeID ?? "other" }
@@ -230,11 +234,31 @@ struct Completion: Codable, Identifiable, Hashable {
     /// The limits you'd set for it, kept as your "guess".
     var limitMin: Int? = nil
     var limitMax: Int? = nil
+    /// The goal it counted toward when you finished it.
+    var goalID: UUID? = nil
 
     var day: String { Day.key(at) }
 
     /// Minutes you expected: the upper limit if you set one, otherwise the lower one.
     var guessMinutes: Int? { limitMax ?? limitMin }
+}
+
+enum GoalUnit: String, Codable, CaseIterable, Identifiable {
+    case steps, hours
+    var id: String { rawValue }
+    var name: String { self == .steps ? "Steps" : "Hours" }
+}
+
+/// A goal for a month: a sentence, and optionally a minimum to hit.
+struct Goal: Codable, Identifiable, Hashable {
+    var id = UUID()
+    var title: String
+    /// "yyyy-MM"
+    var month: String
+    var minimum: Int? = nil
+    var unit: GoalUnit = .steps
+    /// Last month's goal this one continues, if it was carried over.
+    var carriedFrom: UUID? = nil
 }
 
 /// One weekly review: when you did it and the focuses you picked.
@@ -446,6 +470,9 @@ struct AppData: Codable {
     var stuckAsked: [String: String] = [:]
     /// Week start day -> that week's review.
     var reviews: [String: WeeklyReview] = [:]
+    var goals: [Goal] = []
+    /// Months ("yyyy-MM") whose review you've opened at the end.
+    var monthsReviewed: Set<String> = []
 }
 
 extension AppData {

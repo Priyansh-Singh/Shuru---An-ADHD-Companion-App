@@ -53,8 +53,12 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
                                 didReceive response: UNNotificationResponse,
                                 withCompletionHandler completionHandler: @escaping () -> Void) {
         let id = response.notification.request.identifier
+        let month = response.notification.request.content.userInfo["month"] as? String
         DispatchQueue.main.async {
-            if id.hasPrefix("shuru.checkin") {
+            if id == "shuru.monthreview" {
+                AppStore.shared.go(to: .calendar)
+                AppStore.shared.monthReview = MonthReviewRequest(month: month ?? Day.monthKey(Day.today))
+            } else if id.hasPrefix("shuru.checkin") {
                 AppStore.shared.go(to: .hours)
             } else if id == "shuru.review" {
                 AppStore.shared.go(to: .week)

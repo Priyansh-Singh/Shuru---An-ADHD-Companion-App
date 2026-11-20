@@ -21,6 +21,7 @@ struct WeekView: View {
             PageScroll {
                 ScreenHeader(title: "This week", subtitle: "A look back, and what matters next.")
                 reviewCard
+                goalsCard
                 if store.settings.tokens { tokensCard }
                 showedUpCard(week: week)
                 routinesCard(done: done)
@@ -342,6 +343,27 @@ struct WeekView: View {
     }
 
     // MARK: Weekly review
+
+    @ViewBuilder
+    private var goalsCard: some View {
+        let month = Day.monthKey(Day.today)
+        let goals = store.goals(in: month)
+        if !goals.isEmpty {
+            Card {
+                CardHeader(Day.monthName(month) + " goals") {
+                    Button(store.monthIsEnding ? "Month review" : "Month so far") {
+                        store.monthReview = MonthReviewRequest(month: month)
+                    }
+                    .font(.system(size: 14, weight: .semibold))
+                    .frame(minHeight: 44)
+                    .padding(.horizontal, 8)
+                }
+                ForEach(goals) { g in
+                    GoalRow(goal: g, accent: accent) { store.monthReview = MonthReviewRequest(month: month) }
+                }
+            }
+        }
+    }
 
     @ViewBuilder
     private var reviewCard: some View {
