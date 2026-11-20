@@ -8,6 +8,8 @@ A to-do app for ADHD brains, built around one idea: **starting** is the hard par
 
 Instead of a long list, the main screen shows **one next thing** over a slowly moving orb. Plans are written as if–then routines ("When I get home → take a bath → eat dinner → study"), because tying a task to a cue makes it far more likely to happen.
 
+One of the main reasons I developed Shuru this way was because most such To-do apps are designed without taking into account the overwhelming nature of seeing a load of tasks to be done. My app is rather more focused on the now and present, and what we could do to keep it on track. ADHD is something I have recently been reading up on, and while this app is created with Claude, I hope it will be of help to someone out there.
+
 ## What's in it
 
 - **Now**: just the next step. Press and hold to finish it: a circle fills (fast at first, slower near the edge), bounces once, and a tick appears with sparkles. Tap for options: make it smaller, start a 5-minute timer, not now, pick one for me.
