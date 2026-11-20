@@ -6,10 +6,13 @@ final class OrbClock {
     private var t: Double = Double.random(in: 0..<600)
     private var last: Date?
 
+    /// Only moves forward. A late frame still gets its real time (up to 1/15 s), so the motion stays even;
+    /// a long gap (the page was hidden) doesn't make the orb jump.
     func time(at date: Date, speed: Double) -> Double {
         if let last {
             let dt = date.timeIntervalSince(last)
-            if dt > 0 { t += min(dt, 1.0 / 30.0) * speed }
+            guard dt > 0 else { return t }
+            t += min(dt, 1.0 / 15.0) * speed
         }
         last = date
         return t
@@ -60,11 +63,33 @@ private struct OrbBlob: View {
         let m: Double = sin(time * 2 * .pi / morph)
         let w = Double(size) * (1 + 0.06 * m)
         let h = Double(size) * (1 - 0.06 * m)
-        return Ellipse()
-            .fill(color)
-            .frame(width: CGFloat(w), height: CGFloat(h))
+        // A soft edge drawn as a gradient (the falloff of a Gaussian blur), so nothing is blurred per frame.
+        let sigma = max(0.5, Double(blur))
+        let r = (w + h) / 4
+        return Rectangle()
+            .fill(EllipticalGradient(gradient: OrbBlob.gradient(color: color, radius: r, sigma: sigma),
+                                     center: .center, startRadiusFraction: 0, endRadiusFraction: 0.5))
+            .frame(width: CGFloat(w + 6 * sigma), height: CGFloat(h + 6 * sigma))
             .rotationEffect(.radians(angle * 0.5))
-            .blur(radius: blur)
             .offset(x: CGFloat(x), y: CGFloat(y))
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
+    }
+
+    /// Edge brightness at a distance from the edge, in standard deviations (½·erfc).
+    private static let falloff: [(d: Double, a: Double)] = [
+        (-2.5, 0.994), (-2, 0.977), (-1.5, 0.933), (-1, 0.841), (-0.5, 0.691), (0, 0.5),
+        (0.5, 0.309), (1, 0.159), (1.5, 0.067), (2, 0.023), (2.5, 0.006), (3, 0),
+    ]
+
+    static func gradient(color: Color, radius r: Double, sigma: Double) -> Gradient {
+        let outer = r + 3 * sigma
+        var stops = [Gradient.Stop(color: color, location: 0)]
+        for p in falloff {
+            let loc = (r + p.d * sigma) / outer
+            guard loc > 0 else { continue }
+            stops.append(Gradient.Stop(color: color.opacity(p.a), location: min(1, loc)))
+        }
+        return Gradient(stops: stops)
     }
 }

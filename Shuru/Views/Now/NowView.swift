@@ -51,18 +51,25 @@ struct NowView: View {
             let upReveal = Ease.clamp(Double((taskY - h * 0.44) / (h * 0.36)))
             let doneReveal = Ease.clamp(Double((h * 0.44 - taskY) / (h * 0.26)))
             ZStack {
+                // The orb has its own clock, so nothing else has to redraw with it every frame.
                 TimelineView(.animation(minimumInterval: nil, paused: !visibility.visible.contains(.now) || (reduceMotion && !isAnimating))) { context in
                     let now = context.date
-                    let fill = fillValue(at: now)
                     ZStack {
                         Theme.background.ignoresSafeArea()
 
                         OrbView(colors: Theme.orb(settings.palette, dark: dark), dark: dark, blur: settings.orbEdges.blur,
                                 time: reduceMotion ? 0 : orbClock.time(at: now, speed: settings.orbSpeed.factor * (store.data.breakUntil == nil ? 1 : 0.45)))
-                            .scaleEffect(orbScale(now: now, fill: fill, empty: current == nil))
+                            .scaleEffect(orbScale(now: now, fill: fillValue(at: now), empty: current == nil))
                             .animation(.easeInOut(duration: 3.2), value: store.breathPhase)
                             .position(orbPoint)
+                    }
+                }
 
+                // Everything in front: every frame while something moves, once a second otherwise (for timers).
+                TimelineView(.animation(minimumInterval: foregroundLive ? nil : 1, paused: !visibility.visible.contains(.now))) { context in
+                    let now = max(context.date, Date())
+                    let fill = fillValue(at: now)
+                    ZStack {
                         Rectangle()
                             .fill(EllipticalGradient(colors: [scrimColor, scrimColor.opacity(0)], center: .center,
                                                      startRadiusFraction: 0, endRadiusFraction: 0.5))
@@ -118,6 +125,7 @@ struct NowView: View {
                             PauseOverlay(item: store.queue().first)
                         }
                     }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
 
                 if store.pauseStage == nil {
@@ -364,6 +372,9 @@ struct NowView: View {
     private var scrimColor: Color { dark ? Color.black.opacity(0.45) : Color(hex: "#F7F4EF", opacity: 0.4) }
 
     private var isAnimating: Bool { pressStart != nil || releaseAt != nil || celebration != nil || store.pauseStage != nil }
+
+    /// The front layer needs every frame only while it's moving: holding, celebrating, a break or the pause.
+    private var foregroundLive: Bool { isAnimating || store.data.breakUntil != nil || store.askBreak }
 
     @ViewBuilder
     private func taskLayer(current: NowItem?, now: Date, fill: Double) -> some View {
