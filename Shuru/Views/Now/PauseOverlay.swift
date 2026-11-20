@@ -18,6 +18,9 @@ struct PauseOverlay: View {
                 if let since = sinceLine {
                     Text(since).font(.system(size: 13, weight: .medium))
                 }
+                if let app = store.pauseApp, app.key != GuardedAppInfo.anyApp.key {
+                    Text("You opened " + app.name).font(.system(size: 13, weight: .semibold))
+                }
             }
             .foregroundStyle(Theme.orbSub(dark))
             .padding(.top, 24)
@@ -158,15 +161,74 @@ struct PauseOverlay: View {
                         .background(Theme.accent(store.settings.palette), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
                 }
                 .buttonStyle(.plain)
-                Button {
-                    store.backToInstagram()
-                } label: {
-                    Text("Back to Instagram for \(store.settings.snoozeMinutes) min")
-                        .font(.system(size: 13, weight: .semibold))
-                        .frame(maxWidth: .infinity, minHeight: 48)
-                }
-                .buttonStyle(.plain)
+                unlockOptions
             }
         }
+    }
+
+    // MARK: Spending tokens on the app
+
+    private var appName: String {
+        guard let app = store.pauseApp, app.key != GuardedAppInfo.anyApp.key else { return "the app" }
+        return app.name
+    }
+
+    @ViewBuilder
+    private var unlockOptions: some View {
+        let s = store.settings
+        if s.tokens {
+            let balance = store.data.tokens
+            HStack(spacing: 8) {
+                unlockButton(tokens: 1, minutes: s.minutesPerToken, enabled: balance >= 1)
+                unlockButton(tokens: 2, minutes: s.minutesPerToken * 2, enabled: balance >= 2)
+            }
+            Text(balance == 0 ? "No tokens left. Finish something to earn one." : "You have \(balance) token" + (balance == 1 ? "." : "s."))
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(Theme.orbSub(dark))
+        } else {
+            Button {
+                store.backFree()
+            } label: {
+                Text("Back to \(appName) for \(s.snoozeMinutes) min")
+                    .font(.system(size: 13, weight: .semibold))
+                    .frame(maxWidth: .infinity, minHeight: 48)
+            }
+            .buttonStyle(.plain)
+        }
+        if s.quickLooksPerDay > 0 {
+            let left = store.quickLooksLeft
+            Button {
+                store.quickLook()
+            } label: {
+                Text(left > 0 ? "Quick look · 2 min (\(left) left today)" : "No quick looks left today")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(left > 0 ? Color.primary : Color.secondary)
+                    .frame(maxWidth: .infinity, minHeight: 44)
+            }
+            .buttonStyle(.plain)
+            .disabled(left == 0)
+        }
+    }
+
+    private func unlockButton(tokens: Int, minutes: Int, enabled: Bool) -> some View {
+        Button {
+            store.buyTime(tokens: tokens)
+        } label: {
+            VStack(spacing: 2) {
+                Text("\(minutes) min of \(appName)")
+                    .font(.system(size: 13, weight: .semibold))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+                Text(tokens == 1 ? "1 token" : "\(tokens) tokens")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(.secondary)
+            }
+            .frame(maxWidth: .infinity, minHeight: 52)
+            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .opacity(enabled ? 1 : 0.45)
+        }
+        .buttonStyle(.plain)
+        .disabled(!enabled)
+        .accessibilityLabel("Spend \(tokens) token\(tokens == 1 ? "" : "s") for \(minutes) minutes of \(appName)")
     }
 }

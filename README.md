@@ -17,7 +17,7 @@ Instead of a long list, the main screen shows **one next thing** over a slowly m
 - **Hours**: your waking day as blocks, so time is visible. Log what each hour went to; tasks you start or finish fill it in automatically.
 - **Brain dump**: get it out of your head, sort it later.
 - **This week**: no streaks. Tokens (1 per finished task or routine, capped per day, cleared every Monday) to spend on rewards you set.
-- **Pause before scrolling**: when Instagram opens, Shuru opens first: breathe, look back, look ahead, say your first step out loud, then decide.
+- **Pause before distracting apps**: Instagram, YouTube, X, Safari, Twitch, games, any app you pick. Shuru opens first: breathe, look back, look ahead, say your first step out loud, then decide. To keep going, spend tokens on time (1 token = 15 min by default) or use one of a few free 2-minute quick looks.
 
 Everything stays on your phone. There is no account and no server.
 
@@ -41,14 +41,16 @@ Every push to `main` builds an unsigned `.ipa` with GitHub Actions.
 
 Notifications are local (check-ins and timed routines), so they work when sideloaded. No push server is needed.
 
-## Make Instagram open Shuru first
+## Set up the pause for your apps (one automation)
 
-1. Open **Shortcuts** → **Automation** → **+** → **App**.
-2. Pick **Instagram**, choose **Is Opened**, and set it to **Run Immediately**.
-3. Add Shuru's **Pause before scrolling** action.
-   In LiveContainer, use LiveContainer's **Launch App** action with the URL `shuru://pause` instead.
+iOS doesn't let apps create automations, so this is a one-time setup in Shortcuts:
 
-If you choose "Back to Instagram for 15 min", Shuru sends you straight back for that long instead of pausing again.
+1. **Automation** → **+** → **App**. Pick every app you want a pause before (Instagram, YouTube, X, Safari, Twitch, games…).
+2. Keep **Is Opened**, choose **Run Immediately**, then **New Blank Automation**.
+3. Add Shuru's **Check before opening** action and set **App** to **Shortcut Input**.
+4. Add **If** → *Result* *is true*, and inside it Shuru's **Pause before opening** action (App = Shortcut Input).
+
+The check runs without opening Shuru, so when you've bought time and go back to the app, nothing loops. Apps appear under **Settings → Connected apps** once their automation has run.
 
 ## Build it yourself (Mac)
 

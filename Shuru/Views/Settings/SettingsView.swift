@@ -50,7 +50,7 @@ struct SettingsView: View {
                     labeled("Hours", "Log each hour and watch the day pass")
                 }
                 Toggle(isOn: $store.data.settings.pause.animation()) {
-                    labeled("Pause before scrolling", "When your Instagram shortcut opens the app")
+                    labeled("Pause before distracting apps", "Instagram, YouTube, games… whichever you pick below")
                 }
                 if store.settings.pause {
                     Toggle("Breathe", isOn: $store.data.settings.pauseBreath).padding(.leading, 16)
@@ -63,10 +63,26 @@ struct SettingsView: View {
                     }
                     .padding(.leading, 16)
                     Toggle("Say it out loud", isOn: $store.data.settings.pauseSay).padding(.leading, 16)
-                    Picker("Back to scrolling for", selection: $store.data.settings.snoozeMinutes) {
-                        Text("10 min").tag(10)
-                        Text("15 min").tag(15)
-                        Text("30 min").tag(30)
+                    if store.settings.tokens {
+                        Picker("1 token buys", selection: $store.data.settings.minutesPerToken) {
+                            Text("10 min").tag(10)
+                            Text("15 min").tag(15)
+                            Text("30 min").tag(30)
+                        }
+                        .padding(.leading, 16)
+                    } else {
+                        Picker("Free pass length", selection: $store.data.settings.snoozeMinutes) {
+                            Text("10 min").tag(10)
+                            Text("15 min").tag(15)
+                            Text("30 min").tag(30)
+                        }
+                        .padding(.leading, 16)
+                    }
+                    Picker("Free 2-min quick looks a day", selection: $store.data.settings.quickLooksPerDay) {
+                        Text("None").tag(0)
+                        Text("1").tag(1)
+                        Text("3").tag(3)
+                        Text("5").tag(5)
                     }
                     .padding(.leading, 16)
                 }
@@ -120,18 +136,7 @@ struct SettingsView: View {
                 Text("Reminders are local, so they work even when the app is sideloaded. Location never leaves your phone.")
             }
 
-            Section {
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Make Instagram open Shuru first").font(.system(size: 15, weight: .semibold))
-                    Text("1. Open the Shortcuts app and go to Automation.\n2. Tap +, choose App, pick Instagram and “Is Opened”.\n3. Choose “Run Immediately”.\n4. Add the action “Pause before scrolling” from Shuru. In LiveContainer, use its “Launch App” action with the URL shuru://pause instead.")
-                        .font(.system(size: 14))
-                        .foregroundStyle(.secondary)
-                }
-                .padding(.vertical, 4)
-                Button("Try the pause now") { store.requestPause() }
-            } header: {
-                Text("Instagram pause")
-            }
+            DistractingAppsSection()
 
             Section {
                 Button("Reset everything", role: .destructive) { confirmReset = true }
@@ -167,5 +172,91 @@ struct SettingsView: View {
             Text(title)
             Text(detail).font(.system(size: 13)).foregroundStyle(.secondary)
         }
+    }
+}
+
+// MARK: - Distracting apps
+
+private struct SeenEntry: Identifiable {
+    let key: String
+    let app: SeenApp
+    var id: String { key }
+}
+
+struct DistractingAppsSection: View {
+    @EnvironmentObject var store: AppStore
+    @Environment(\.openURL) private var openURL
+
+    var body: some View {
+        Section {
+            let seen: [SeenEntry] = store.data.seenApps
+                .map { SeenEntry(key: $0.key, app: $0.value) }
+                .sorted { $0.app.name.localizedCaseInsensitiveCompare($1.app.name) == .orderedAscending }
+            if seen.isEmpty {
+                Text("No apps connected yet. Set up the automation below, then open one of the apps once.")
+                    .font(.system(size: 14))
+                    .foregroundStyle(.secondary)
+            }
+            ForEach(seen) { entry in
+                HStack {
+                    Image(systemName: "checkmark.circle.fill").foregroundStyle(Theme.accent(store.settings.palette))
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(entry.app.name)
+                        Text(status(entry.key)).font(.system(size: 13)).foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    if store.unlockedUntil(entry.key) != nil {
+                        Button("Lock now") { store.lockNow(entry.key) }
+                            .buttonStyle(.borderless)
+                            .font(.system(size: 14, weight: .semibold))
+                    }
+                }
+                .contextMenu {
+                    Button("Forget this app", systemImage: "trash", role: .destructive) { store.forgetApp(entry.key) }
+                }
+            }
+        } header: {
+            Text("Connected apps")
+        } footer: {
+            Text("An app shows up here the first time its automation runs. Long-press to forget one.")
+        }
+
+        Section {
+            VStack(alignment: .leading, spacing: 10) {
+                Text("One automation covers every app").font(.system(size: 15, weight: .semibold))
+                Text(Self.steps)
+                    .font(.system(size: 14))
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(.vertical, 4)
+            Button {
+                if let url = URL(string: "shortcuts://") { openURL(url) }
+            } label: {
+                Label("Open Shortcuts", systemImage: "arrow.up.forward.app")
+            }
+            Button("Try the pause now") { store.requestPause(appInput: "YouTube") }
+        } header: {
+            Text("Set up the automation")
+        } footer: {
+            Text("iOS doesn’t let any app create automations by itself, so this one-time setup is done by you. The check runs without opening Shuru, so going back to an app you unlocked doesn’t loop.")
+        }
+    }
+
+    static let steps = """
+    1. In Shortcuts, go to Automation and tap +.
+    2. Choose App. Tap Choose and pick every app that drains you: Instagram, YouTube, X, Safari, Twitch, games…
+    3. Keep “Is Opened” ticked, choose “Run Immediately”, then tap Next and New Blank Automation.
+    4. Add Shuru’s “Check before opening” action. Tap App and pick Shortcut Input.
+    5. Add an “If” action: If Result is true.
+    6. Inside the If, add Shuru’s “Pause before opening” action, with App set to Shortcut Input.
+    """
+
+    private func status(_ key: String) -> String {
+        if let until = store.unlockedUntil(key) {
+            let mins = max(1, Int(until.timeIntervalSinceNow / 60))
+            return "Unlocked · \(mins) min left"
+        }
+        return store.settings.pause ? "Pauses when opened" : "Pause is off"
     }
 }

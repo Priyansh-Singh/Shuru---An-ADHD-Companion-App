@@ -70,6 +70,11 @@ final class AppStore: ObservableObject {
     @Published var timer: RunningTimer? = nil
     /// True while the Coming up / Done panel is open on Now (hides the page dots).
     @Published var nowPanelOpen = false
+    /// The app you were opening when the pause showed up.
+    @Published var pauseApp: GuardedAppInfo? = nil
+    /// A short message shown at the top of Now.
+    @Published var banner: String? = nil
+    private var lastBounce: [String: Date] = [:]
     @Published var activeLog: (itemID: String, startHour: Int)? = nil
 
     private var saveWork: DispatchWorkItem?
@@ -163,7 +168,9 @@ final class AppStore: ObservableObject {
     func handle(url: URL) {
         guard url.scheme == "shuru" else { return }
         switch url.host ?? "" {
-        case "pause": requestPause()
+        case "pause":
+            let items = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
+            requestPause(appInput: items.first(where: { $0.name == "app" })?.value)
         case "start":
             let items = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
             if let raw = items.first(where: { $0.name == "routine" })?.value, let id = UUID(uuidString: raw) {
@@ -204,15 +211,109 @@ final class AppStore: ObservableObject {
         return stages
     }
 
-    func requestPause() {
+    func unlockedUntil(_ key: String) -> Date? {
+        guard let d = data.unlocks[key], d > Date() else { return nil }
+        return d
+    }
+
+    private func isUnlocked(_ app: GuardedAppInfo) -> Bool {
+        if unlockedUntil(app.key) != nil { return true }
+        if app.key == GuardedAppInfo.anyApp.key, let until = data.pauseCooldownUntil, until > Date() { return true }
+        return false
+    }
+
+    private func noteSeen(_ app: GuardedAppInfo) {
+        guard app.key != GuardedAppInfo.anyApp.key else { return }
+        data.seenApps[app.key] = SeenApp(name: app.name, lastSeen: Date())
+    }
+
+    /// For the "Check before opening" Shortcuts action: true means show the pause.
+    /// Because this action doesn't open Shuru by itself, going back to an unlocked app never loops.
+    func shouldPause(appInput: String?) -> Bool {
+        let app = GuardedAppInfo.match(appInput)
+        noteSeen(app)
+        guard data.settings.pause else { return false }
+        return !isUnlocked(app)
+    }
+
+    func requestPause(appInput: String? = nil) {
+        let app = GuardedAppInfo.match(appInput)
+        noteSeen(app)
         guard data.settings.pause else { go(to: .now); return }
-        if let until = data.pauseCooldownUntil, until > Date() {
-            openInstagram()
+        if isUnlocked(app) {
+            // One-action setups open Shuru every time. Send them back, but never ping-pong.
+            if let last = lastBounce[app.key], Date().timeIntervalSince(last) < 8 {
+                banner = app.key == GuardedAppInfo.anyApp.key
+                    ? "It’s unlocked. Open it from your home screen."
+                    : "\(app.name) is unlocked. Open it from your home screen."
+                go(to: .now)
+                return
+            }
+            lastBounce[app.key] = Date()
+            openApp(app)
             return
         }
+        pauseApp = app
         page = .now
         breathPhase = nil
         pauseStage = pauseStages.first
+    }
+
+    var quickLooksLeft: Int {
+        let used = (data.quickLooks?.day == Day.today) ? (data.quickLooks?.count ?? 0) : 0
+        return max(0, data.settings.quickLooksPerDay - used)
+    }
+
+    /// Spends tokens on time in the app you were opening.
+    @discardableResult
+    func buyTime(tokens n: Int) -> Bool {
+        normalizeTokens()
+        guard data.settings.tokens, n > 0, data.tokens >= n else { return false }
+        data.tokens -= n
+        unlock(pauseApp ?? GuardedAppInfo.anyApp, minutes: n * data.settings.minutesPerToken)
+        return true
+    }
+
+    func quickLook() {
+        guard quickLooksLeft > 0 else { return }
+        let used = (data.quickLooks?.day == Day.today) ? (data.quickLooks?.count ?? 0) : 0
+        data.quickLooks = TokenDay(day: Day.today, count: used + 1)
+        unlock(pauseApp ?? GuardedAppInfo.anyApp, minutes: 2)
+    }
+
+    /// Used when tokens are switched off: a free pass for the snooze length.
+    func backFree() {
+        unlock(pauseApp ?? GuardedAppInfo.anyApp, minutes: data.settings.snoozeMinutes)
+    }
+
+    private func unlock(_ app: GuardedAppInfo, minutes: Int) {
+        let until = Date().addingTimeInterval(TimeInterval(minutes * 60))
+        data.unlocks[app.key] = until
+        if app.key == GuardedAppInfo.anyApp.key { data.pauseCooldownUntil = until }
+        Notifications.unlockEnds(key: app.key, name: app.name, at: until)
+        endPause()
+        lastBounce[app.key] = Date()
+        if app.returnURL != nil {
+            openApp(app)
+        } else {
+            banner = "Unlocked for \(minutes) min. Open " + app.name + " from your home screen."
+        }
+    }
+
+    func lockNow(_ key: String) {
+        data.unlocks[key] = nil
+        if key == GuardedAppInfo.anyApp.key { data.pauseCooldownUntil = nil }
+        Notifications.cancelUnlock(key: key)
+    }
+
+    func forgetApp(_ key: String) {
+        data.seenApps[key] = nil
+        lockNow(key)
+    }
+
+    func openApp(_ app: GuardedAppInfo) {
+        guard let s = app.returnURL, let url = URL(string: s) else { return }
+        UIApplication.shared.open(url, options: [:], completionHandler: nil)
     }
 
     func advancePause() {
@@ -229,22 +330,7 @@ final class AppStore: ObservableObject {
     func endPause() {
         pauseStage = nil
         breathPhase = nil
-    }
-
-    func backToInstagram() {
-        data.pauseCooldownUntil = Date().addingTimeInterval(TimeInterval(data.settings.snoozeMinutes * 60))
-        endPause()
-        openInstagram()
-    }
-
-    func openInstagram() {
-        if let url = URL(string: "instagram://app") {
-            UIApplication.shared.open(url, options: [:]) { ok in
-                if !ok, let web = URL(string: "https://instagram.com") {
-                    UIApplication.shared.open(web)
-                }
-            }
-        }
+        pauseApp = nil
     }
 
     // MARK: Types

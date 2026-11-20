@@ -23,11 +23,30 @@ enum Notifications {
         UNUserNotificationCenter.current().add(request)
     }
 
+    /// "Your 15 min of YouTube is up."
+    static func unlockEnds(key: String, name: String, at date: Date) {
+        let content = UNMutableNotificationContent()
+        content.title = "Time’s up on " + name
+        content.body = "That’s the time you bought. Close it, or spend another token next time you open it."
+        content.sound = .default
+        let seconds = max(1, date.timeIntervalSinceNow)
+        let trigger = UNTimeIntervalNotificationTrigger(timeInterval: seconds, repeats: false)
+        let center = UNUserNotificationCenter.current()
+        center.removePendingNotificationRequests(withIdentifiers: ["shuru.unlock.\(key)"])
+        center.add(UNNotificationRequest(identifier: "shuru.unlock.\(key)", content: content, trigger: trigger))
+    }
+
+    static func cancelUnlock(key: String) {
+        UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: ["shuru.unlock.\(key)"])
+    }
+
     static func reschedule(for data: AppData?) {
         guard let data else { return }
         let center = UNUserNotificationCenter.current()
         center.getPendingNotificationRequests { pending in
-            let ours = pending.map(\.identifier).filter { $0.hasPrefix("shuru.") }
+            let ours = pending.map(\.identifier).filter {
+                $0.hasPrefix("shuru.checkin.") || $0.hasPrefix("shuru.routine.") || $0.hasPrefix("shuru.task.")
+            }
             center.removePendingNotificationRequests(withIdentifiers: ours)
             var requests: [UNNotificationRequest] = []
             let s = data.settings

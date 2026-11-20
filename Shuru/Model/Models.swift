@@ -338,6 +338,10 @@ struct AppSettings: Codable, Hashable {
     var pauseFuture = true
     var pauseSay = true
     var snoozeMinutes = 15
+    /// How many minutes in a distracting app one token buys.
+    var minutesPerToken = 15
+    /// Free 2-minute looks per day, for when you really just need to check one thing.
+    var quickLooksPerDay = 3
 
     var tokens = true
     var tokenCap = 8
@@ -388,6 +392,11 @@ struct AppData: Codable {
     var hiddenTemplates: Set<String> = []
     /// "r:<id>@<day>" -> when a cue routine was started (you arrived, or tapped Start)
     var started: [String: Date] = [:]
+    /// app key -> unlocked until (bought with tokens, a quick look, or a free pass)
+    var unlocks: [String: Date] = [:]
+    var quickLooks: TokenDay? = nil
+    /// Apps whose Shortcuts automation has run at least once.
+    var seenApps: [String: SeenApp] = [:]
 }
 
 extension AppData {

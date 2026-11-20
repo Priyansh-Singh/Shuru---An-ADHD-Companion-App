@@ -84,6 +84,25 @@ struct NowView: View {
                 flowHandles(height: geo.size.height)
             }
 
+            if let banner = store.banner {
+                Text(banner)
+                    .font(.system(size: 13, weight: .semibold))
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 10)
+                    .background(Theme.card2, in: Capsule())
+                    .padding(.horizontal, 24)
+                    .padding(.top, 56)
+                    .frame(maxHeight: .infinity, alignment: .top)
+                    .transition(.move(edge: .top).combined(with: .opacity))
+                    .zIndex(3)
+                    .onAppear {
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 5) {
+                            if store.banner == banner { withAnimation { store.banner = nil } }
+                        }
+                    }
+            }
+
             if let panel {
                 Color.black.opacity(0.35)
                     .ignoresSafeArea()
