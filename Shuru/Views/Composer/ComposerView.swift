@@ -15,6 +15,8 @@ struct ComposerRequest: Identifiable {
     var routine: Routine? = nil
     /// True when task/routine is only a starting point (a template), not something to edit.
     var prefill = false
+    /// True when this makes or edits one of your templates instead of a real routine.
+    var asTemplate = false
 }
 
 enum RepeatChoice: String, CaseIterable, Identifiable {
@@ -61,6 +63,7 @@ struct ComposerView: View {
     @State private var newTypeFor: UUID?
     @State private var newTypeName = ""
     @State private var confirmDelete = false
+    @State private var savedTemplate = false
     @FocusState private var focusedStep: UUID?
 
     private var editing: Bool { !request.prefill && (request.task != nil || request.routine != nil) }
@@ -69,7 +72,7 @@ struct ComposerView: View {
     var body: some View {
         NavigationStack {
             Form {
-                if !editing {
+                if !editing && !request.asTemplate {
                     Section {
                         Picker("Kind", selection: $mode) {
                             ForEach(ComposerRequest.Mode.allCases) { m in Text(m.name).tag(m) }
@@ -115,9 +118,23 @@ struct ComposerView: View {
                     }
                 }
 
+                if mode == .routine && !request.asTemplate {
+                    Section {
+                        Button {
+                            saveCopyAsTemplate()
+                        } label: {
+                            Label(savedTemplate ? "Saved as a template" : "Save a copy as a template",
+                                  systemImage: savedTemplate ? "checkmark" : "square.on.square")
+                        }
+                        .disabled(savedTemplate || !canSave)
+                    } footer: {
+                        Text("Templates show up at the bottom of Routines, ready to reuse.")
+                    }
+                }
+
                 if editing {
                     Section {
-                        Button(mode == .task ? "Delete task" : "Delete routine", role: .destructive) { confirmDelete = true }
+                        Button(deleteLabel, role: .destructive) { confirmDelete = true }
                     }
                 }
             }
@@ -144,8 +161,14 @@ struct ComposerView: View {
     }
 
     private var title: String {
+        if request.asTemplate { return editing ? "Edit template" : "New template" }
         if editing { return mode == .task ? "Edit task" : "Edit routine" }
         return mode == .task ? "New task" : "New routine"
+    }
+
+    private var deleteLabel: String {
+        if request.asTemplate { return "Delete template" }
+        return mode == .task ? "Delete task" : "Delete routine"
     }
 
     // MARK: Sections
@@ -291,14 +314,38 @@ struct ComposerView: View {
             r.days = chosenDays ?? Set(1...7)
             r.backup = backup.trimmingCharacters(in: .whitespaces)
             r.breatherMinutes = breather
-            store.upsert(routine: r)
+            if request.asTemplate {
+                store.upsert(template: r)
+            } else {
+                store.upsert(routine: r)
+            }
         }
         dismiss()
     }
 
+    private func saveCopyAsTemplate() {
+        let cleaned = cleanedSteps()
+        guard !cleaned.isEmpty else { return }
+        var r = Routine()
+        r.steps = cleaned.map { s in
+            var c = s
+            c.id = UUID()
+            c.subs = s.subs.map { SubStep(title: $0.title) }
+            return c
+        }
+        r.trigger = trigger
+        r.days = chosenDays ?? Set(1...7)
+        r.backup = backup.trimmingCharacters(in: .whitespaces)
+        r.breatherMinutes = breather
+        store.upsert(template: r)
+        withAnimation { savedTemplate = true }
+    }
+
     private func deleteExisting() {
         if let t = request.task { store.delete(task: t.id) }
-        if let r = request.routine { store.delete(routine: r.id) }
+        if let r = request.routine {
+            if request.asTemplate { store.delete(template: r.id) } else { store.delete(routine: r.id) }
+        }
         dismiss()
     }
 

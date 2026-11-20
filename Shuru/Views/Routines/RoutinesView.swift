@@ -38,28 +38,7 @@ struct RoutinesView: View {
                     }
                 }
 
-                VStack(alignment: .leading, spacing: 10) {
-                    Text("Templates").font(.system(size: 13, weight: .semibold)).foregroundStyle(.secondary).padding(.horizontal, 4)
-                    ForEach(RoutineTemplate.all) { t in
-                        Button {
-                            composer = ComposerRequest(mode: .routine, routine: t.routine(), prefill: true)
-                        } label: {
-                            HStack {
-                                Image(systemName: t.symbol).foregroundStyle(accent).frame(width: 24)
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(t.name).font(.system(size: 15, weight: .semibold))
-                                    Text(t.detail).font(.system(size: 13)).foregroundStyle(.secondary)
-                                }
-                                Spacer()
-                                Image(systemName: "plus").foregroundStyle(accent)
-                            }
-                            .padding(.horizontal, 16)
-                            .frame(minHeight: 56)
-                            .background(Theme.card, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-                        }
-                        .buttonStyle(.plain)
-                    }
-                }
+                templatesSection
             }
             FloatingAddButton(label: "New routine", tint: accent) {
                 composer = ComposerRequest(mode: .routine)
@@ -67,6 +46,119 @@ struct RoutinesView: View {
         }
         .sheet(item: $composer) { req in
             ComposerView(request: req)
+        }
+    }
+
+    // MARK: Templates
+
+    private struct TemplateItem: Identifiable {
+        let id: String
+        let name: String
+        let detail: String
+        let symbol: String
+        let userTemplate: Routine?
+        let make: () -> Routine
+    }
+
+    private var templateItems: [TemplateItem] {
+        let mine = store.data.templates.map { r in
+            TemplateItem(id: "mine-" + r.id.uuidString,
+                         name: r.trigger.label,
+                         detail: stepsSummary(r),
+                         symbol: r.trigger.kind.symbol,
+                         userTemplate: r,
+                         make: {
+                             var copy = r
+                             copy.id = UUID()
+                             copy.enabled = true
+                             return copy
+                         })
+        }
+        let builtIn = RoutineTemplate.all
+            .filter { !store.data.hiddenTemplates.contains($0.id) }
+            .map { t in
+                TemplateItem(id: "built-" + t.id, name: t.name, detail: t.detail, symbol: t.symbol, userTemplate: nil, make: t.routine)
+            }
+        return mine + builtIn
+    }
+
+    private func stepsSummary(_ r: Routine) -> String {
+        let titles: [String] = r.steps.prefix(3).map { $0.title }
+        let joined: String = titles.joined(separator: ", ")
+        return r.steps.count > 3 ? joined + "…" : joined
+    }
+
+    private var templatesSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Templates")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 4)
+            ForEach(templateItems) { t in
+                templateRow(t)
+            }
+            Button {
+                composer = ComposerRequest(mode: .routine, asTemplate: true)
+            } label: {
+                HStack {
+                    Image(systemName: "plus.square.on.square").foregroundStyle(accent).frame(width: 24)
+                    Text("New template").font(.system(size: 15, weight: .semibold)).foregroundStyle(accent)
+                    Spacer()
+                }
+                .padding(.horizontal, 16)
+                .frame(minHeight: 52)
+                .background(Theme.card, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+            }
+            .buttonStyle(.plain)
+            Text("Long-press a template to edit or remove it.")
+                .font(.system(size: 12))
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 4)
+            if !store.data.hiddenTemplates.isEmpty {
+                Button("Bring back the built-in templates") { store.restoreBuiltInTemplates() }
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(accent)
+                    .frame(minHeight: 44)
+                    .padding(.horizontal, 4)
+            }
+        }
+    }
+
+    private func templateRow(_ t: TemplateItem) -> some View {
+        Button {
+            composer = ComposerRequest(mode: .routine, routine: t.make(), prefill: true)
+        } label: {
+            HStack {
+                Image(systemName: t.symbol).foregroundStyle(accent).frame(width: 24)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(t.name).font(.system(size: 15, weight: .semibold))
+                    Text(t.detail).font(.system(size: 13)).foregroundStyle(.secondary).lineLimit(1)
+                }
+                Spacer()
+                if t.userTemplate != nil {
+                    Text("Yours").font(.system(size: 12, weight: .semibold)).foregroundStyle(.secondary)
+                }
+                Image(systemName: "plus").foregroundStyle(accent)
+            }
+            .padding(.horizontal, 16)
+            .frame(minHeight: 56)
+            .background(Theme.card, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .accessibilityHint("Starts a new routine from this template")
+        .contextMenu {
+            if let mine = t.userTemplate {
+                Button("Edit template", systemImage: "pencil") {
+                    composer = ComposerRequest(mode: .routine, routine: mine, asTemplate: true)
+                }
+                Button("Delete template", systemImage: "trash", role: .destructive) {
+                    store.delete(template: mine.id)
+                }
+            } else {
+                Button("Remove template", systemImage: "eye.slash", role: .destructive) {
+                    store.hideBuiltInTemplate(String(t.id.dropFirst("built-".count)))
+                }
+            }
         }
     }
 

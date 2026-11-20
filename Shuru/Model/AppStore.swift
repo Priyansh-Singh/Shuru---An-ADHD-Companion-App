@@ -488,6 +488,28 @@ final class AppStore: ObservableObject {
         if let i = data.routines.firstIndex(where: { $0.id == id }) { data.routines[i].enabled = on }
     }
 
+    // MARK: Templates
+
+    func upsert(template: Routine) {
+        if let i = data.templates.firstIndex(where: { $0.id == template.id }) {
+            data.templates[i] = template
+        } else {
+            data.templates.append(template)
+        }
+    }
+
+    func delete(template id: UUID) {
+        data.templates.removeAll { $0.id == id }
+    }
+
+    func hideBuiltInTemplate(_ id: String) {
+        data.hiddenTemplates.insert(id)
+    }
+
+    func restoreBuiltInTemplates() {
+        data.hiddenTemplates = []
+    }
+
     // MARK: Brain dump
 
     func addThought(_ text: String) {

@@ -350,6 +350,10 @@ struct AppData: Codable {
     /// step keys made smaller ("<base>#<step>")
     var smaller: Set<String> = []
     var pauseCooldownUntil: Date? = nil
+    /// Routines saved as your own templates.
+    var templates: [Routine] = []
+    /// Built-in templates you removed.
+    var hiddenTemplates: Set<String> = []
 }
 
 extension AppData {
