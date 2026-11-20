@@ -40,8 +40,9 @@ jobs:
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY="" \
-            build 2>&1 | tee build.log | grep -E "error:|warning: unre|\*\* BUILD" || true
-          test -d build/Build/Products/Release-iphoneos/Shuru.app
+            build 2>&1 | tee build.log | grep -E "error:|\*\* BUILD" || true
+          grep -q "BUILD SUCCEEDED" build.log
+          test -f build/Build/Products/Release-iphoneos/Shuru.app/Shuru
 
       - name: Show compile errors
         if: failure()

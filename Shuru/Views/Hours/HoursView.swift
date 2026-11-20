@@ -30,24 +30,10 @@ struct HoursView: View {
         let wake = s.wakeHour
         let bed = max(s.bedHour, wake + 1)
         let pending = pendingHours(now: now, today: today, wake: wake)
+        let nudge: String? = (s.checkEvery > 0 && s.chime != .off) ? nudgeText(every: s.checkEvery, wake: wake, bed: bed) : nil
         return ZStack(alignment: .bottom) {
             PageScroll {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(Day.clock(now))
-                        .font(.system(size: 40, weight: .bold).monospacedDigit())
-                        .tracking(-0.8)
-                    Text(sinceLine(now: now))
-                        .font(.system(size: 14))
-                        .foregroundStyle(.secondary)
-                    if let log = store.activeLog, let item = store.queue().first(where: { $0.id == log.itemID }) {
-                        Text("Logging now: " + item.step.title)
-                            .font(.system(size: 13, weight: .semibold))
-                            .foregroundStyle(accent)
-                    }
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 4)
-                .accessibilityElement(children: .combine)
+                header(now: now)
 
                 dayCard(today: today, hour: hour, wake: wake, bed: bed)
 
@@ -55,8 +41,8 @@ struct HoursView: View {
 
                 loggedCard(today: today, wake: wake, bed: bed)
 
-                if s.checkEvery > 0 && s.chime != .off {
-                    Text("You’ll get a nudge every " + (s.checkEvery == 1 ? "hour" : "\(s.checkEvery) hours") + " between " + Day.hourLabel(wake) + " and " + Day.hourLabel(bed) + ". Change it in Settings.")
+                if let nudge {
+                    Text(nudge)
                         .font(.system(size: 13))
                         .foregroundStyle(.secondary)
                         .padding(.horizontal, 4)
@@ -69,6 +55,36 @@ struct HoursView: View {
     }
 
     // MARK: Pieces
+
+    private func header(now: Date) -> some View {
+        let logging: String? = activeTitle()
+        return VStack(alignment: .leading, spacing: 4) {
+            Text(Day.clock(now))
+                .font(.system(size: 40, weight: .bold).monospacedDigit())
+                .tracking(-0.8)
+            Text(sinceLine(now: now))
+                .font(.system(size: 14))
+                .foregroundStyle(.secondary)
+            if let logging {
+                Text("Logging now: \(logging)")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(accent)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 4)
+        .accessibilityElement(children: .combine)
+    }
+
+    private func activeTitle() -> String? {
+        guard let log = store.activeLog else { return nil }
+        return store.queue().first(where: { $0.id == log.itemID })?.step.title
+    }
+
+    private func nudgeText(every: Int, wake: Int, bed: Int) -> String {
+        let span = every == 1 ? "hour" : "\(every) hours"
+        return "You’ll get a nudge every \(span) between \(Day.hourLabel(wake)) and \(Day.hourLabel(bed)). Change it in Settings."
+    }
 
     private func dayCard(today: String, hour: Int, wake: Int, bed: Int) -> some View {
         let hours = Array(wake..<bed)
