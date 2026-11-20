@@ -24,7 +24,8 @@ struct NowView: View {
     @State private var buzz: Task<Void, Never>?
     @State private var finishing = false
     @State private var flow: FlowMode = .rest
-    @State private var dragY: CGFloat = 0
+    @GestureState(resetTransaction: Transaction(animation: .spring(response: 0.45, dampingFraction: 0.86)))
+    private var dragY: CGFloat = 0
 
     enum FlowMode { case rest, upcoming, done }
 
@@ -129,7 +130,6 @@ struct NowView: View {
         }
         .onDisappear {
             flow = .rest
-            dragY = 0
         }
         .task(id: primeKey(current)) {
             // "Before you start": breathe, look back, look ahead, once per task per day.
@@ -164,7 +164,6 @@ struct NowView: View {
     private func setFlow(_ mode: FlowMode) {
         withAnimation(.spring(response: 0.45, dampingFraction: 0.86)) {
             flow = mode
-            dragY = 0
         }
     }
 
@@ -172,14 +171,14 @@ struct NowView: View {
 
     private var flowDrag: some Gesture {
         DragGesture(minimumDistance: 20)
-            .onChanged { v in
-                guard canFlow, store.swipeAxis != .horizontal else { return }
+            .updating($dragY) { v, state, _ in
+                guard canFlow else { return }
                 let dx = v.translation.width, dy = v.translation.height
                 guard abs(dy) > abs(dx) * 0.87 else { return }
-                dragY = dy * 0.65
+                state = dy * 0.65
             }
             .onEnded { v in
-                guard canFlow, store.swipeAxis != .horizontal else { setFlow(flow); return }
+                guard canFlow else { return }
                 let dx = v.translation.width, dy = v.translation.height
                 var next = flow
                 if abs(dy) > abs(dx) * 0.87 {
