@@ -1,5 +1,21 @@
 import SwiftUI
 
+/// Orb time that only moves forward while the orb is on screen, in small steps,
+/// so coming back to Now continues the motion instead of jumping ahead.
+final class OrbClock {
+    private var t: Double = Double.random(in: 0..<600)
+    private var last: Date?
+
+    func time(at date: Date, speed: Double) -> Double {
+        if let last {
+            let dt = date.timeIntervalSince(last)
+            if dt > 0 { t += min(dt, 1.0 / 30.0) * speed }
+        }
+        last = date
+        return t
+    }
+}
+
 /// The soft, slowly moving orb behind the next task. `time` drives the motion.
 struct OrbView: View {
     let colors: OrbColors

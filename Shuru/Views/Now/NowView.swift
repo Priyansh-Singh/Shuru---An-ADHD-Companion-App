@@ -12,6 +12,8 @@ struct NowView: View {
     @EnvironmentObject var store: AppStore
     @Environment(\.colorScheme) private var scheme
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @ObservedObject private var visibility = PagerVisibility.shared
+    @State private var orbClock = OrbClock()
 
     @State private var pressStart: Date?
     @State private var releaseAt: Date?
@@ -45,14 +47,14 @@ struct NowView: View {
             let upReveal = Ease.clamp(Double((taskY - h * 0.44) / (h * 0.36)))
             let doneReveal = Ease.clamp(Double((h * 0.44 - taskY) / (h * 0.26)))
             ZStack {
-                TimelineView(.animation(minimumInterval: nil, paused: store.page != .now || (reduceMotion && !isAnimating))) { context in
+                TimelineView(.animation(minimumInterval: nil, paused: !visibility.visible.contains(.now) || (reduceMotion && !isAnimating))) { context in
                     let now = context.date
                     let fill = fillValue(at: now)
                     ZStack {
                         Theme.background.ignoresSafeArea()
 
                         OrbView(colors: Theme.orb(settings.palette, dark: dark), dark: dark, blur: settings.orbEdges.blur,
-                                time: reduceMotion ? 0 : now.timeIntervalSinceReferenceDate * settings.orbSpeed.factor)
+                                time: reduceMotion ? 0 : orbClock.time(at: now, speed: settings.orbSpeed.factor))
                             .scaleEffect(orbScale(now: now, fill: fill, empty: current == nil))
                             .animation(.easeInOut(duration: 3.2), value: store.breathPhase)
                             .position(orbPoint)

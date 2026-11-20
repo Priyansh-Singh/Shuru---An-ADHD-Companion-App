@@ -1,6 +1,16 @@
 import SwiftUI
 import UIKit
 
+/// Which pages are at least partly on screen. Only Now listens, and it only changes when that set changes.
+final class PagerVisibility: ObservableObject {
+    static let shared = PagerVisibility()
+    @Published private(set) var visible: Set<Page> = [.now]
+
+    func set(_ pages: Set<Page>) {
+        if pages != visible { visible = pages }
+    }
+}
+
 /// Left/right paging on iOS's own scroll view, so it's smooth and cancels taps like any iPhone app.
 /// The scroll view only starts when a swipe begins sideways; swipes that start vertical are left
 /// to the page (pulling the day flow on Now).
@@ -114,6 +124,22 @@ final class PagerController: UIViewController, UIScrollViewDelegate {
         updateAccessibility()
     }
 
+    private func reportVisible() {
+        let w = scroll.bounds.width
+        guard w > 0 else { return }
+        let left = scroll.contentOffset.x, right = left + w
+        var on: Set<Page> = []
+        for (i, p) in pages.enumerated() {
+            let x0 = CGFloat(i) * w, x1 = x0 + w
+            if x1 > left + 1 && x0 < right - 1 { on.insert(p) }
+        }
+        PagerVisibility.shared.set(on)
+    }
+
+    func scrollViewDidScroll(_ scrollView: UIScrollView) {
+        reportVisible()
+    }
+
     private func layoutPages() {
         scroll.frame = view.bounds
         let w = view.bounds.width, h = view.bounds.height
@@ -125,6 +151,7 @@ final class PagerController: UIViewController, UIScrollViewDelegate {
         if !isUserScrolling, let i = pages.firstIndex(of: current) {
             scroll.contentOffset = CGPoint(x: CGFloat(i) * w, y: 0)
         }
+        reportVisible()
     }
 
     private func scrollTo(_ p: Page, animated: Bool) {
