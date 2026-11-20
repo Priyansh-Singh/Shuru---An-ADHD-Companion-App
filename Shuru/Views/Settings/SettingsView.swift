@@ -135,7 +135,7 @@ struct SettingsView: View {
             } header: {
                 Text("Start over")
             } footer: {
-                Text("Shuru " + (Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? ""))
+                Text(versionLine)
             }
 
             Section {
@@ -150,6 +150,13 @@ struct SettingsView: View {
         } message: {
             Text("Your settings stay. This can’t be undone.")
         }
+    }
+
+    private var versionLine: String {
+        let info = Bundle.main.infoDictionary ?? [:]
+        let version = info["CFBundleShortVersionString"] as? String ?? "?"
+        let build = info["CFBundleVersion"] as? String ?? "?"
+        return "Shuru \(version), build \(build)"
     }
 
     private func labeled(_ title: String, _ detail: String) -> some View {
