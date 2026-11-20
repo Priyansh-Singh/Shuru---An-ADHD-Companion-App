@@ -45,6 +45,16 @@ enum Day {
         add(-(weekday(key) - 1), to: key)
     }
 
+    /// First day of the week containing `key`: Monday or Sunday.
+    static func weekStart(of key: String, mondayFirst: Bool) -> String {
+        mondayFirst ? add(-((weekday(key) + 5) % 7), to: key) : sundayStart(of: key)
+    }
+
+    /// Weekday numbers (1 = Sunday) in display order.
+    static func weekdayOrder(mondayFirst: Bool) -> [Int] {
+        mondayFirst ? [2, 3, 4, 5, 6, 7, 1] : [1, 2, 3, 4, 5, 6, 7]
+    }
+
     static func dayNumber(_ key: String) -> Int {
         calendar.component(.day, from: date(key))
     }

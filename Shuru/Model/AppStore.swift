@@ -84,6 +84,11 @@ final class AppStore: ObservableObject {
 
     var settings: AppSettings { data.settings }
 
+    /// First day of the current week, following the Monday/Sunday setting.
+    func weekStart(of key: String = Day.today) -> String {
+        Day.weekStart(of: key, mondayFirst: data.settings.weekStartsMonday)
+    }
+
     init() {
         let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
             ?? FileManager.default.temporaryDirectory

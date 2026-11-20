@@ -85,8 +85,8 @@ struct CalendarView: View {
 
     private var title: String {
         if mode == .week {
-            let start = Day.sundayStart(of: selected)
-            let thisWeek = Day.sundayStart(of: today)
+            let start = store.weekStart(of: selected)
+            let thisWeek = store.weekStart(of: today)
             let diff = (Day.calendar.dateComponents([.day], from: Day.date(thisWeek), to: Day.date(start)).day ?? 0) / 7
             switch diff {
             case 0: return "This week"
@@ -291,7 +291,7 @@ struct CalendarView: View {
 
     @ViewBuilder
     private var weekContent: some View {
-        let start = Day.sundayStart(of: selected)
+        let start = store.weekStart(of: selected)
         ForEach(0..<7, id: \.self) { i in
             WeekDayCard(day: Day.add(i, to: start)) {
                 selected = Day.add(i, to: start)
@@ -309,7 +309,7 @@ struct WeekStrip: View {
     @Binding var mode: CalendarView.Mode
 
     var body: some View {
-        let start = Day.sundayStart(of: selected)
+        let start = store.weekStart(of: selected)
         let today = Day.today
         let accent = Theme.accent(store.settings.palette)
         HStack(spacing: 0) {
@@ -328,7 +328,7 @@ struct WeekStrip: View {
                     mode = .day
                 } label: {
                     VStack(spacing: 4) {
-                        Text(Day.letters[i]).font(.system(size: 11, weight: .medium)).foregroundStyle(.secondary)
+                        Text(Day.letters[Day.weekday(key) - 1]).font(.system(size: 11, weight: .medium)).foregroundStyle(.secondary)
                         Text("\(Day.dayNumber(key))")
                             .font(.system(size: 16, weight: isSel || isToday ? .bold : .medium).monospacedDigit())
                             .foregroundStyle(isSel ? Color.white : (isToday ? accent : (key < today ? Color.secondary : Color.primary)))
@@ -342,7 +342,7 @@ struct WeekStrip: View {
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel(Day.longWeekdays[i] + " " + String(Day.dayNumber(key)) + (isToday ? ", today" : ""))
+                .accessibilityLabel(Day.longWeekdays[Day.weekday(key) - 1] + " " + String(Day.dayNumber(key)) + (isToday ? ", today" : ""))
                 .accessibilityAddTraits(isSel ? .isSelected : [])
             }
             Button {

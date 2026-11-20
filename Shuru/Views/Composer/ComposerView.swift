@@ -526,11 +526,12 @@ struct StepEditorSection: View {
 // MARK: - Days
 
 struct DaysPicker: View {
+    @EnvironmentObject var store: AppStore
     @Binding var days: Set<Int>
 
     var body: some View {
         HStack(spacing: 6) {
-            ForEach(1...7, id: \.self) { wd in
+            ForEach(Day.weekdayOrder(mondayFirst: store.settings.weekStartsMonday), id: \.self) { wd in
                 let on = days.contains(wd)
                 Button {
                     if on { days.remove(wd) } else { days.insert(wd) }

@@ -325,6 +325,9 @@ struct AppSettings: Codable, Hashable {
     var orbEdges: OrbEdges = .soft
     var celebration: CelebrationStyle = .ripple
 
+    /// Calendar and This week start on Monday instead of Sunday.
+    var weekStartsMonday = false
+
     var holdSeconds: Int = 5
     var showTrigger = true
     var showDots = true

@@ -31,6 +31,13 @@ struct SettingsView: View {
                 }
             }
 
+            Section("Calendar") {
+                Picker("Week starts on", selection: $store.data.settings.weekStartsMonday) {
+                    Text("Sunday").tag(false)
+                    Text("Monday").tag(true)
+                }
+            }
+
             Section("Now screen") {
                 Picker("To finish a task", selection: $store.data.settings.holdSeconds) {
                     Text("Tap").tag(0)

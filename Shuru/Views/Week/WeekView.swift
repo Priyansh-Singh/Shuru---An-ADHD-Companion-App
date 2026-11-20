@@ -13,8 +13,8 @@ struct WeekView: View {
     private var accent: Color { Theme.accent(store.settings.palette) }
 
     var body: some View {
-        let monday = Day.mondayKey()
-        let week = (0..<7).map { Day.add($0, to: monday) }
+        let first = store.weekStart()
+        let week = (0..<7).map { Day.add($0, to: first) }
         let done = store.data.completions.filter { week.contains($0.day) }
         ZStack(alignment: .bottom) {
             PageScroll {
