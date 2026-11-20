@@ -17,8 +17,12 @@ struct ShuruApp: App {
         }
         .onChange(of: scenePhase) { _, phase in
             switch phase {
-            case .active: store.becameActive()
-            case .background: store.saveNow()
+            case .active:
+                store.becameActive()
+                Backup.shared.backUpIfStale(store)
+            case .background:
+                store.saveNow()
+                Backup.shared.backUpInBackground(store)
             default: break
             }
         }

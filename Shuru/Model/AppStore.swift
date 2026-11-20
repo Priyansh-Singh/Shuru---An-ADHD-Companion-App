@@ -116,17 +116,40 @@ final class AppStore: ObservableObject {
     /// Loads saved data. Missing keys (added in later versions) fall back to defaults.
     private static func load(from url: URL) -> AppData {
         guard let raw = try? Data(contentsOf: url) else { return AppData() }
+        return decode(raw) ?? AppData()
+    }
+
+    /// Reads saved data, filling in anything added in later versions with defaults.
+    static func decode(_ raw: Data) -> AppData? {
         if let direct = try? decoder().decode(AppData.self, from: raw) { return direct }
         guard
             let defaultsData = try? encoder().encode(AppData()),
             let defaults = try? JSONSerialization.jsonObject(with: defaultsData) as? [String: Any],
-            let saved = try? JSONSerialization.jsonObject(with: raw) as? [String: Any]
-        else { return AppData() }
+            let saved = try? JSONSerialization.jsonObject(with: raw) as? [String: Any],
+            saved["settings"] != nil || saved["tasks"] != nil || saved["routines"] != nil
+        else { return nil }
         let merged = merge(defaults, saved)
-        guard let mergedData = try? JSONSerialization.data(withJSONObject: merged),
-              let result = try? decoder().decode(AppData.self, from: mergedData)
-        else { return AppData() }
-        return result
+        guard let mergedData = try? JSONSerialization.data(withJSONObject: merged) else { return nil }
+        return try? decoder().decode(AppData.self, from: mergedData)
+    }
+
+    /// Everything, as the JSON that goes into a backup.
+    func exportData() -> Data? {
+        let e = JSONEncoder()
+        e.dateEncodingStrategy = .iso8601
+        e.outputFormatting = [.sortedKeys, .prettyPrinted]
+        return try? e.encode(data)
+    }
+
+    /// Replaces everything with a backup. Returns false if the file isn't a Shuru backup.
+    func importData(_ raw: Data) -> Bool {
+        guard let restored = AppStore.decode(raw) else { return false }
+        data = restored
+        timer = nil
+        activeLog = nil
+        endPause()
+        saveNow()
+        return true
     }
 
     private static func merge(_ base: [String: Any], _ over: [String: Any]) -> [String: Any] {

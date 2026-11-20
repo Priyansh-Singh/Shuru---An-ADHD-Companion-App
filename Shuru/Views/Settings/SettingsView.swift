@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct SettingsView: View {
     @EnvironmentObject var store: AppStore
@@ -152,6 +153,8 @@ struct SettingsView: View {
 
             DistractingAppsSection()
 
+            BackupSection()
+
             Section {
                 Button("Reset everything", role: .destructive) { confirmReset = true }
             } header: {
@@ -272,5 +275,97 @@ struct DistractingAppsSection: View {
             return "Unlocked · \(mins) min left"
         }
         return store.settings.pause ? "Pauses when opened" : "Pause is off"
+    }
+}
+
+// MARK: - Backup
+
+struct BackupSection: View {
+    @EnvironmentObject var store: AppStore
+    @ObservedObject private var backup = Backup.shared
+    @State private var pickingFolder = false
+    @State private var pickingFile = false
+    @State private var pendingRestore: Data?
+    @State private var message: String?
+
+    var body: some View {
+        Section {
+            if let name = backup.folderName {
+                LabeledContent("Backing up to", value: name)
+                Button("Back up now") {
+                    message = backup.backUpNow(store) ? "Backed up just now." : (backup.lastError ?? "Couldn’t back up.")
+                }
+                Button("Change folder") { pickingFolder = true }
+                    .fileImporter(isPresented: $pickingFolder, allowedContentTypes: [.folder]) { result in
+                        if case .success(let url) = result {
+                            backup.useFolder(url)
+                            message = backup.backUpNow(store) ? "Backed up to “\(url.lastPathComponent)”." : backup.lastError
+                        }
+                    }
+                Button("Stop backing up", role: .destructive) {
+                    backup.stop()
+                    message = nil
+                }
+            } else {
+                Button {
+                    pickingFolder = true
+                } label: {
+                    Label("Choose a backup folder…", systemImage: "folder.badge.plus")
+                }
+                .fileImporter(isPresented: $pickingFolder, allowedContentTypes: [.folder]) { result in
+                    if case .success(let url) = result {
+                        backup.useFolder(url)
+                        message = backup.backUpNow(store) ? "Backed up to “\(url.lastPathComponent)”." : backup.lastError
+                    }
+                }
+            }
+            Button {
+                pickingFile = true
+            } label: {
+                Label("Restore from a backup…", systemImage: "clock.arrow.circlepath")
+            }
+            .fileImporter(isPresented: $pickingFile, allowedContentTypes: [.json]) { result in
+                if case .success(let url) = result {
+                    if let raw = backup.read(url) {
+                        pendingRestore = raw
+                    } else {
+                        message = "Couldn’t open that file."
+                    }
+                }
+            }
+            if let message {
+                Text(message).font(.system(size: 13)).foregroundStyle(.secondary)
+            }
+            if let err = backup.lastError, message == nil {
+                Text(err).font(.system(size: 13)).foregroundStyle(Theme.danger)
+            }
+        } header: {
+            Text("Backup")
+        } footer: {
+            Text(footer)
+        }
+        .confirmationDialog("Replace everything in Shuru with this backup?",
+                            isPresented: Binding(get: { pendingRestore != nil }, set: { if !$0 { pendingRestore = nil } }),
+                            titleVisibility: .visible) {
+            Button("Restore", role: .destructive) {
+                if let raw = pendingRestore {
+                    message = store.importData(raw) ? "Restored." : "That file isn’t a Shuru backup."
+                }
+                pendingRestore = nil
+            }
+        } message: {
+            Text("Your tasks, routines, history, hours, tokens and settings will be swapped for the ones in the backup.")
+        }
+    }
+
+    private var footer: String {
+        var text = "Pick a folder in iCloud Drive, Google Drive, Dropbox, OneDrive or any app in Files. Shuru saves a copy when you leave the app and keeps a daily copy for a week. On a new phone, install Shuru and restore from that file."
+        if let last = backup.lastBackup {
+            let f = DateFormatter()
+            f.dateStyle = .medium
+            f.timeStyle = .short
+            text = "Last backup: " + f.string(from: last) + ".\n" + text
+        }
+        return text
     }
 }
