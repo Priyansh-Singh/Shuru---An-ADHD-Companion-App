@@ -75,6 +75,8 @@ final class AppStore: ObservableObject {
     /// A short message shown at the top of Now.
     @Published var banner: String? = nil
     private var lastBounce: [String: Date] = [:]
+    /// Which way the current swipe went (set by the pager, read by Now). Not published on purpose.
+    var swipeAxis: SwipeAxis? = nil
     @Published var activeLog: (itemID: String, startHour: Int)? = nil
 
     private var saveWork: DispatchWorkItem?

@@ -44,7 +44,7 @@ struct NowView: View {
             let upReveal = Ease.clamp(Double((taskY - h * 0.44) / (h * 0.36)))
             let doneReveal = Ease.clamp(Double((h * 0.44 - taskY) / (h * 0.26)))
             ZStack {
-                TimelineView(.animation(minimumInterval: nil, paused: reduceMotion && !isAnimating)) { context in
+                TimelineView(.animation(minimumInterval: nil, paused: store.page != .now || (reduceMotion && !isAnimating))) { context in
                     let now = context.date
                     let fill = fillValue(at: now)
                     ZStack {
@@ -164,16 +164,16 @@ struct NowView: View {
     private var flowDrag: some Gesture {
         DragGesture(minimumDistance: 20)
             .onChanged { v in
-                guard canFlow else { return }
+                guard canFlow, store.swipeAxis != .horizontal else { return }
                 let dx = v.translation.width, dy = v.translation.height
-                guard abs(dy) > abs(dx) * 1.2 else { return }
+                guard abs(dy) > abs(dx) * 0.87 else { return }
                 dragY = dy * 0.65
             }
             .onEnded { v in
-                guard canFlow else { setFlow(flow); return }
+                guard canFlow, store.swipeAxis != .horizontal else { setFlow(flow); return }
                 let dx = v.translation.width, dy = v.translation.height
                 var next = flow
-                if abs(dy) > abs(dx) * 1.2 {
+                if abs(dy) > abs(dx) * 0.87 {
                     switch flow {
                     case .rest:
                         if dy > 70 { next = .upcoming } else if dy < -70 { next = .done }

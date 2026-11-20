@@ -8,14 +8,8 @@ struct RootView: View {
         ZStack(alignment: .bottom) {
             Theme.background.ignoresSafeArea()
 
-            TabView(selection: $store.page) {
-                ForEach(pages) { p in
-                    page(p)
-                        .tag(p)
-                }
-            }
-            .tabViewStyle(.page(indexDisplayMode: .never))
-            .ignoresSafeArea(.container, edges: .bottom)
+            Pager(pages: pages) { p in page(p) }
+                .ignoresSafeArea(.container, edges: .bottom)
 
             if store.settings.showDots && store.pauseStage == nil && !(store.nowPanelOpen && store.page == .now) {
                 PageDots(pages: pages, current: store.page) { p in
@@ -39,6 +33,75 @@ struct RootView: View {
         case .routines: RoutinesView()
         case .week: WeekView()
         }
+    }
+}
+
+enum SwipeAxis { case horizontal, vertical }
+
+/// Left/right paging that commits to one direction as soon as a swipe starts,
+/// so a quick swipe down on Now can never turn into a page change.
+struct Pager<Content: View>: View {
+    @EnvironmentObject var store: AppStore
+    let pages: [Page]
+    @ViewBuilder var content: (Page) -> Content
+
+    @State private var dragX: CGFloat = 0
+    @State private var axis: SwipeAxis?
+
+    private let spring = Animation.spring(response: 0.38, dampingFraction: 0.9)
+
+    var body: some View {
+        GeometryReader { geo in
+            let w = geo.size.width
+            let index = CGFloat(pages.firstIndex(of: store.page) ?? 0)
+            HStack(spacing: 0) {
+                ForEach(pages) { p in
+                    content(p)
+                        .frame(width: w, height: geo.size.height)
+                        .accessibilityHidden(p != store.page)
+                }
+            }
+            .frame(width: w, height: geo.size.height, alignment: .leading)
+            .offset(x: -index * w + dragX)
+            .animation(spring, value: store.page)
+            .contentShape(Rectangle())
+            .simultaneousGesture(drag(width: w))
+        }
+        .clipped()
+    }
+
+    private func drag(width w: CGFloat) -> some Gesture {
+        DragGesture(minimumDistance: 12)
+            .onChanged { v in
+                let dx = v.translation.width, dy = v.translation.height
+                if axis == nil {
+                    axis = abs(dx) > abs(dy) * 1.15 ? .horizontal : .vertical
+                    store.swipeAxis = axis
+                }
+                guard axis == .horizontal, store.pauseStage == nil else { return }
+                let i = pages.firstIndex(of: store.page) ?? 0
+                let atEdge = (i == 0 && dx > 0) || (i == pages.count - 1 && dx < 0)
+                dragX = atEdge ? dx * 0.3 : dx
+            }
+            .onEnded { v in
+                let wasHorizontal = axis == .horizontal
+                axis = nil
+                DispatchQueue.main.async { store.swipeAxis = nil }
+                guard wasHorizontal, store.pauseStage == nil else {
+                    withAnimation(spring) { dragX = 0 }
+                    return
+                }
+                let i = pages.firstIndex(of: store.page) ?? 0
+                let moved = v.translation.width
+                let flung = v.predictedEndTranslation.width
+                var next = i
+                if (moved < -w * 0.25 || flung < -w * 0.5) && i < pages.count - 1 { next = i + 1 }
+                if (moved > w * 0.25 || flung > w * 0.5) && i > 0 { next = i - 1 }
+                withAnimation(spring) {
+                    store.page = pages[next]
+                    dragX = 0
+                }
+            }
     }
 }
 
