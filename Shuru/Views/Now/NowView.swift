@@ -54,7 +54,7 @@ struct NowView: View {
                         Theme.background.ignoresSafeArea()
 
                         OrbView(colors: Theme.orb(settings.palette, dark: dark), dark: dark, blur: settings.orbEdges.blur,
-                                time: reduceMotion ? 0 : orbClock.time(at: now, speed: settings.orbSpeed.factor))
+                                time: reduceMotion ? 0 : orbClock.time(at: now, speed: settings.orbSpeed.factor * (store.data.breakUntil == nil ? 1 : 0.45)))
                             .scaleEffect(orbScale(now: now, fill: fill, empty: current == nil))
                             .animation(.easeInOut(duration: 3.2), value: store.breathPhase)
                             .position(orbPoint)
@@ -78,13 +78,25 @@ struct NowView: View {
                         }
 
                         if store.pauseStage == nil {
-                            taskLayer(current: current, now: now, fill: fill)
-                                .scaleEffect(1 - 0.12 * CGFloat(max(upReveal, doneReveal)))
-                                .position(taskPoint)
+                            if store.askBreak {
+                                BreakPrompt(short: settings.breakMinutes, long: store.longBreakMinutes, dark: dark,
+                                            accent: Theme.accent(settings.palette))
+                                    .position(taskPoint)
+                                    .transition(.opacity)
+                            } else if let until = store.data.breakUntil {
+                                BreakView(until: until, now: now, next: current.map { store.displayTitle($0) }, dark: dark,
+                                          accent: Theme.accent(settings.palette))
+                                    .position(taskPoint)
+                                    .transition(.opacity)
+                            } else {
+                                taskLayer(current: current, now: now, fill: fill)
+                                    .scaleEffect(1 - 0.12 * CGFloat(max(upReveal, doneReveal)))
+                                    .position(taskPoint)
+                            }
                         }
 
                         hint
-                            .opacity(flow == .rest ? 1 : 0)
+                            .opacity(flow == .rest && !onBreakScreen ? 1 : 0)
                             .position(x: taskPoint.x, y: h - 92)
 
                         if store.pauseStage != nil {
@@ -97,7 +109,7 @@ struct NowView: View {
                     flowColumns(height: h, width: geo.size.width, taskY: taskY, upReveal: upReveal, doneReveal: doneReveal)
                 }
 
-                if store.pauseStage == nil && flow == .rest && celebration == nil {
+                if store.pauseStage == nil && flow == .rest && celebration == nil && !onBreakScreen {
                     flowHandles(height: h)
                 }
 
@@ -136,10 +148,10 @@ struct NowView: View {
         .task(id: primeKey(current)) {
             // "Before you start": breathe, look back, look ahead, once per task per day.
             guard let item = current, settings.taskPause, store.page == .now, flow == .rest,
-                  celebration == nil, heldItem == nil, store.pauseStage == nil,
+                  celebration == nil, heldItem == nil, store.pauseStage == nil, !onBreakScreen,
                   !store.data.primed.contains(item.id) else { return }
             try? await Task.sleep(nanoseconds: 700_000_000)
-            guard !Task.isCancelled, store.page == .now, celebration == nil, store.pauseStage == nil else { return }
+            guard !Task.isCancelled, store.page == .now, celebration == nil, store.pauseStage == nil, !onBreakScreen else { return }
             store.startTaskPause(for: item)
         }
         .onAppear {
@@ -169,7 +181,10 @@ struct NowView: View {
         }
     }
 
-    private var canFlow: Bool { store.pauseStage == nil && pressStart == nil && celebration == nil }
+    private var canFlow: Bool { store.pauseStage == nil && pressStart == nil && celebration == nil && !onBreakScreen }
+
+    /// "Take a break?" or a running break is showing instead of the task.
+    private var onBreakScreen: Bool { store.askBreak || store.data.breakUntil != nil }
 
     private var flowDrag: some Gesture {
         DragGesture(minimumDistance: 20)
@@ -274,6 +289,7 @@ struct NowView: View {
          celebration == nil ? "idle" : "party",
          store.page == .now ? "here" : "away",
          flow == .rest ? "rest" : "flow",
+         onBreakScreen ? "break" : "work",
          settings.taskPause ? "on" : "off"].joined(separator: "|")
     }
 
@@ -501,6 +517,7 @@ struct NowView: View {
         finishing = true
         hintVisible = false
         heldItem = item
+        let askAfter = item.kind == .task && settings.breakPrompt
         let result = store.complete(item)
         if settings.haptics {
             UINotificationFeedbackGenerator().notificationOccurred(.success)
@@ -511,6 +528,10 @@ struct NowView: View {
         DispatchQueue.main.asyncAfter(deadline: .now() + 2.3) {
             celebration = nil
             finishing = false
+            if askAfter && !store.queue().isEmpty && store.pauseStage == nil {
+                withAnimation(.easeInOut(duration: 0.4)) { store.askBreak = true }
+                UIAccessibility.post(notification: .announcement, argument: "Take a break?")
+            }
         }
     }
 
@@ -588,5 +609,108 @@ struct WaitingCueButton: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel("Start: " + routine.trigger.label + ", " + routine.title)
+    }
+}
+
+// MARK: - Breaks
+
+/// "Take a break?" after finishing a task or a step of one.
+struct BreakPrompt: View {
+    @EnvironmentObject var store: AppStore
+    let short: Int
+    let long: Int
+    let dark: Bool
+    let accent: Color
+
+    var body: some View {
+        VStack(spacing: 14) {
+            Text("Nice work.")
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(Theme.orbSub(dark))
+            Text("Take a break?")
+                .font(.system(size: 26, weight: .semibold))
+                .tracking(-0.4)
+                .accessibilityAddTraits(.isHeader)
+            HStack(spacing: 8) {
+                breakButton(short)
+                breakButton(long)
+            }
+            .padding(.top, 6)
+            Button {
+                withAnimation(.easeInOut(duration: 0.3)) { store.skipBreak() }
+            } label: {
+                Text("Keep going")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(Theme.onAccent(dark))
+                    .frame(maxWidth: .infinity, minHeight: 48)
+                    .background(accent, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+            }
+            .buttonStyle(.plain)
+        }
+        .shadow(color: dark ? .black.opacity(0.5) : .white.opacity(0.7), radius: 14)
+        .frame(width: 300)
+    }
+
+    private func breakButton(_ minutes: Int) -> some View {
+        Button {
+            withAnimation(.easeInOut(duration: 0.3)) { store.startBreak(minutes: minutes) }
+        } label: {
+            Text("\(minutes) min")
+                .font(.system(size: 15, weight: .semibold))
+                .frame(maxWidth: .infinity, minHeight: 48)
+                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Take a \(minutes)-minute break")
+    }
+}
+
+/// A running break: time left, what's next, and a way back.
+struct BreakView: View {
+    @EnvironmentObject var store: AppStore
+    let until: Date
+    let now: Date
+    let next: String?
+    let dark: Bool
+    let accent: Color
+
+    var body: some View {
+        let left = until.timeIntervalSince(now)
+        let over = left <= 0
+        VStack(spacing: 12) {
+            Text(over ? "Break’s over" : "On a break")
+                .font(.system(size: 13, weight: .semibold))
+                .tracking(0.3)
+                .foregroundStyle(Theme.orbSub(dark))
+            Text(over ? "Back to it?" : clock(left))
+                .font(.system(size: over ? 26 : 44, weight: over ? .semibold : .bold).monospacedDigit())
+            if let next {
+                Text("Up next: " + next)
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(Theme.orbSub(dark))
+                    .multilineTextAlignment(.center)
+                    .lineLimit(2)
+            }
+            Button {
+                withAnimation(.easeInOut(duration: 0.3)) { store.endBreak() }
+            } label: {
+                Text(over ? "Start the next one" : "End break early")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(over ? Theme.onAccent(dark) : Color.primary)
+                    .frame(maxWidth: .infinity, minHeight: 48)
+                    .background(over ? AnyShapeStyle(accent) : AnyShapeStyle(.ultraThinMaterial),
+                                in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+            }
+            .buttonStyle(.plain)
+            .padding(.top, 6)
+        }
+        .shadow(color: dark ? .black.opacity(0.5) : .white.opacity(0.7), radius: 14)
+        .frame(width: 300)
+        .accessibilityElement(children: .contain)
+    }
+
+    private func clock(_ seconds: TimeInterval) -> String {
+        let s = max(0, Int(seconds.rounded(.up)))
+        return String(format: "%d:%02d", s / 60, s % 60)
     }
 }

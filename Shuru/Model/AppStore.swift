@@ -189,6 +189,7 @@ final class AppStore: ObservableObject {
 
     func becameActive() {
         normalizeTokens()
+        if let b = data.breakUntil, Date().timeIntervalSince(b) > 2 * 3600 { data.breakUntil = nil }
         let today = "@" + Day.today
         if data.primed.contains(where: { !$0.contains(today) }) {
             data.primed = data.primed.filter { $0.contains(today) }
@@ -236,6 +237,44 @@ final class AppStore: ObservableObject {
 
     /// True when the pause is the "before you start" one for a task, not one for an app.
     @Published var pauseForTask = false
+
+    // MARK: Breaks after tasks
+
+    /// Showing "Take a break?" on Now.
+    @Published var askBreak = false
+
+    var longBreakMinutes: Int {
+        switch data.settings.breakMinutes {
+        case 10: return 20
+        case 15: return 30
+        default: return 15
+        }
+    }
+
+    func startBreak(minutes: Int) {
+        askBreak = false
+        let until = Date().addingTimeInterval(TimeInterval(minutes * 60))
+        data.breakUntil = until
+        let next = queue().first.map { displayTitle($0) }
+        Notifications.breakEnds(at: until, next: next)
+        if data.settings.hours && data.settings.autoLog {
+            let h = Day.calendar.component(.hour, from: Date())
+            var dayLog = data.hours[Day.today] ?? [:]
+            if dayLog[String(h)] == nil {
+                dayLog[String(h)] = HourEntry(typeID: "rest", note: "Break", auto: true)
+                data.hours[Day.today] = dayLog
+            }
+        }
+    }
+
+    func skipBreak() {
+        askBreak = false
+    }
+
+    func endBreak() {
+        data.breakUntil = nil
+        Notifications.cancelBreak()
+    }
 
     var taskPauseStages: [PauseStage] {
         let s = data.settings

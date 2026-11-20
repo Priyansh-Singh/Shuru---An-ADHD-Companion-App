@@ -328,6 +328,11 @@ struct AppSettings: Codable, Hashable {
     /// Calendar and This week start on Monday instead of Sunday.
     var weekStartsMonday = false
 
+    /// After finishing a task (or a step of one), ask whether to take a break. Never after routines.
+    var breakPrompt = true
+    /// Short break length; the long one is 15/20/30 to match.
+    var breakMinutes = 5
+
     var holdSeconds: Int = 5
     var showTrigger = true
     var showDots = true
@@ -408,6 +413,8 @@ struct AppData: Codable {
     var seenApps: [String: SeenApp] = [:]
     /// Now items that already had their "before you start" pause (ids include the day).
     var primed: Set<String> = []
+    /// When the current break ends, if you're on one.
+    var breakUntil: Date? = nil
 }
 
 extension AppData {

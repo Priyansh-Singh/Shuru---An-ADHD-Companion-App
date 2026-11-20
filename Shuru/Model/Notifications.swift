@@ -36,6 +36,21 @@ enum Notifications {
         center.add(UNNotificationRequest(identifier: "shuru.unlock.\(key)", content: content, trigger: trigger))
     }
 
+    static func breakEnds(at date: Date, next: String?) {
+        let content = UNMutableNotificationContent()
+        content.title = "Break’s over"
+        content.body = next.map { "Next up: " + $0 } ?? "Back to it when you’re ready."
+        content.sound = .default
+        let trigger = UNTimeIntervalNotificationTrigger(timeInterval: max(1, date.timeIntervalSinceNow), repeats: false)
+        let center = UNUserNotificationCenter.current()
+        center.removePendingNotificationRequests(withIdentifiers: ["shuru.break"])
+        center.add(UNNotificationRequest(identifier: "shuru.break", content: content, trigger: trigger))
+    }
+
+    static func cancelBreak() {
+        UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: ["shuru.break"])
+    }
+
     static func cancelUnlock(key: String) {
         UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: ["shuru.unlock.\(key)"])
     }

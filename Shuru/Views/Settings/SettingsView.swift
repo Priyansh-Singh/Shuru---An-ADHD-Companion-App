@@ -45,6 +45,17 @@ struct SettingsView: View {
                     Text("Hold 3 s").tag(3)
                     Text("Hold 5 s").tag(5)
                 }
+                Toggle(isOn: $store.data.settings.breakPrompt.animation()) {
+                    labeled("Ask about a break after each task", "Tasks and their steps. Not after routines.")
+                }
+                if store.settings.breakPrompt {
+                    Picker("Break lengths", selection: $store.data.settings.breakMinutes) {
+                        Text("5 or 15 min").tag(5)
+                        Text("10 or 20 min").tag(10)
+                        Text("15 or 30 min").tag(15)
+                    }
+                    .padding(.leading, 16)
+                }
                 Toggle("Show the “if” line", isOn: $store.data.settings.showTrigger)
                 Toggle("Show page dots", isOn: $store.data.settings.showDots)
                 Toggle("Vibration", isOn: $store.data.settings.haptics)
