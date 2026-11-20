@@ -40,6 +40,7 @@ jobs:
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY="" \
+            CURRENT_PROJECT_VERSION=${{ github.run_number }} \
             build 2>&1 | tee build.log | grep -E "error:|\*\* BUILD" || true
           grep -q "BUILD SUCCEEDED" build.log
           test -f build/Build/Products/Release-iphoneos/Shuru.app/Shuru
@@ -55,6 +56,12 @@ jobs:
           zip -qry Shuru.ipa Payload
           ls -la Shuru.ipa
 
+      - name: Write SideStore source
+        env:
+          BUILD_NUMBER: ${{ github.run_number }}
+          RELEASE_NOTES: ${{ github.event.head_commit.message }}
+        run: python3 scripts/make_source.py Shuru.ipa
+
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
@@ -67,7 +74,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release delete latest --yes --cleanup-tag || true
-          gh release create latest Shuru.ipa \
+          gh release create latest Shuru.ipa source.json \
             --title "Shuru (latest build)" \
-            --notes "Unsigned build of commit ${GITHUB_SHA::7}. Install it with SideStore, AltStore or LiveContainer, which sign it with your own Apple ID." \
+            --notes "Build ${{ github.run_number }} (commit ${GITHUB_SHA::7}). Unsigned: install it with SideStore, AltStore or LiveContainer, which sign it with your own Apple ID. SideStore source: https://github.com/${{ github.repository }}/releases/download/latest/source.json" \
             --target "$GITHUB_SHA"

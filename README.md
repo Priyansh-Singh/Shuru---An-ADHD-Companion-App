@@ -20,6 +20,16 @@ Instead of a long list, the main screen shows **one next thing** over a slowly m
 
 Everything stays on your phone. There is no account and no server.
 
+## Add to SideStore (gets updates)
+
+In SideStore or AltStore, go to **Sources** → **+** and paste:
+
+```
+https://github.com/Priyansh-Singh/Shuru---An-ADHD-Companion-App/releases/download/latest/source.json
+```
+
+Shuru then shows up in the source with an **Install** button, and every new build appears as an update.
+
 ## Install without a Mac
 
 Every push to `main` builds an unsigned `.ipa` with GitHub Actions.
