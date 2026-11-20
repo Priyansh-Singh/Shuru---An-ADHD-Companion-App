@@ -36,6 +36,39 @@ enum Notifications {
         center.add(UNNotificationRequest(identifier: "shuru.unlock.\(key)", content: content, trigger: trigger))
     }
 
+    /// For the step that's now first on Now: a quiet note at its minimum, an alert at its maximum.
+    static func scheduleLimits(for step: Step, title: String, from start: Date) {
+        cancelLimits()
+        let center = UNUserNotificationCenter.current()
+        if let mn = step.minMinutes {
+            let content = UNMutableNotificationContent()
+            content.title = Step.duration(mn) + " in"
+            content.body = "You can stop “" + title + "” here if you want, or keep going."
+            content.interruptionLevel = .passive
+            let at = start.addingTimeInterval(TimeInterval(mn * 60)).timeIntervalSinceNow
+            if at > 1 {
+                center.add(UNNotificationRequest(identifier: "shuru.limit.min", content: content,
+                                                 trigger: UNTimeIntervalNotificationTrigger(timeInterval: at, repeats: false)))
+            }
+        }
+        if let mx = step.maxMinutes {
+            let content = UNMutableNotificationContent()
+            content.title = "Time’s up"
+            content.body = "You said you’d stop “" + title + "” by " + Step.duration(mx) + "."
+            content.sound = .default
+            content.interruptionLevel = .active
+            let at = start.addingTimeInterval(TimeInterval(mx * 60)).timeIntervalSinceNow
+            if at > 1 {
+                center.add(UNNotificationRequest(identifier: "shuru.limit.max", content: content,
+                                                 trigger: UNTimeIntervalNotificationTrigger(timeInterval: at, repeats: false)))
+            }
+        }
+    }
+
+    static func cancelLimits() {
+        UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: ["shuru.limit.min", "shuru.limit.max"])
+    }
+
     static func breakEnds(at date: Date, next: String?) {
         let content = UNMutableNotificationContent()
         content.title = "Break’s over"
@@ -61,6 +94,7 @@ enum Notifications {
         center.getPendingNotificationRequests { pending in
             let ours = pending.map(\.identifier).filter {
                 $0.hasPrefix("shuru.checkin.") || $0.hasPrefix("shuru.routine.") || $0.hasPrefix("shuru.task.")
+                    || $0 == "shuru.review"
             }
             center.removePendingNotificationRequests(withIdentifiers: ours)
             var requests: [UNNotificationRequest] = []
@@ -90,8 +124,9 @@ enum Notifications {
                     let days = r.days.isEmpty ? Set(1...7) : r.days
                     for wd in days.sorted() {
                         let content = UNMutableNotificationContent()
-                        content.title = r.trigger.label
-                        content.body = r.steps.count > 1 ? r.title + " → then \(r.steps.count - 1) more" : r.title
+                        content.title = r.hasName ? r.title : r.trigger.label
+                        let first = r.steps.first?.title ?? r.title
+                        content.body = r.steps.count > 1 ? first + " → then \(r.steps.count - 1) more" : first
                         content.sound = .default
                         var dc = DateComponents()
                         dc.weekday = wd
@@ -116,6 +151,20 @@ enum Notifications {
                     let trigger = UNCalendarNotificationTrigger(dateMatching: dc, repeats: false)
                     requests.append(UNNotificationRequest(identifier: "shuru.task.\(t.id.uuidString)", content: content, trigger: trigger))
                 }
+            }
+
+            // Weekly review, on the last day of your week
+            if s.reviewReminder {
+                let content = UNMutableNotificationContent()
+                content.title = "Weekly review"
+                content.body = "5 minutes to look back and pick what matters next week."
+                content.sound = .default
+                var dc = DateComponents()
+                dc.weekday = s.weekStartsMonday ? 1 : 7
+                dc.hour = 19
+                dc.minute = 0
+                requests.insert(UNNotificationRequest(identifier: "shuru.review", content: content,
+                                                      trigger: UNCalendarNotificationTrigger(dateMatching: dc, repeats: true)), at: 0)
             }
 
             // iOS keeps at most 64 pending notifications per app.

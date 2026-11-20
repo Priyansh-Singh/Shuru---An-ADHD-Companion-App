@@ -160,8 +160,15 @@ struct Routine: Codable, Identifiable, Hashable {
     var enabled = true
     var backup: String = ""
     var breatherMinutes: Int = 0
+    /// Optional name, e.g. "Evening reset". Without one, the first step stands in.
+    var name: String? = nil
 
-    var title: String { steps.first?.title ?? "Routine" }
+    var title: String {
+        if let n = name?.trimmingCharacters(in: .whitespaces), !n.isEmpty { return n }
+        return steps.first?.title ?? "Routine"
+    }
+
+    var hasName: Bool { !(name?.trimmingCharacters(in: .whitespaces).isEmpty ?? true) }
 
     func runs(on day: String) -> Bool {
         days.isEmpty || days.contains(Day.weekday(day))
@@ -218,8 +225,23 @@ struct Completion: Codable, Identifiable, Hashable {
     /// True when this finished the whole task or routine.
     var finishedWhole = true
     var earnedToken = false
+    /// How long it actually took, from when it became the next thing on Now.
+    var seconds: Int? = nil
+    /// The limits you'd set for it, kept as your "guess".
+    var limitMin: Int? = nil
+    var limitMax: Int? = nil
 
     var day: String { Day.key(at) }
+
+    /// Minutes you expected: the upper limit if you set one, otherwise the lower one.
+    var guessMinutes: Int? { limitMax ?? limitMin }
+}
+
+/// One weekly review: when you did it and the focuses you picked.
+struct WeeklyReview: Codable, Hashable {
+    var done: Date
+    var focuses: [String]
+    var focusDone: [Bool] = []
 }
 
 struct HourEntry: Codable, Hashable {
@@ -333,6 +355,9 @@ struct AppSettings: Codable, Hashable {
     /// Short break length; the long one is 15/20/30 to match.
     var breakMinutes = 5
 
+    /// Notification at the start of each week for the weekly review.
+    var reviewReminder = true
+
     var holdSeconds: Int = 5
     var showTrigger = true
     var showDots = true
@@ -415,6 +440,12 @@ struct AppData: Codable {
     var primed: Set<String> = []
     /// When the current break ends, if you're on one.
     var breakUntil: Date? = nil
+    /// Now item id -> when it became the next thing (for time limits and how long it took).
+    var startedAt: [String: Date] = [:]
+    /// Task id -> day you were last asked about it rolling over.
+    var stuckAsked: [String: String] = [:]
+    /// Week start day -> that week's review.
+    var reviews: [String: WeeklyReview] = [:]
 }
 
 extension AppData {

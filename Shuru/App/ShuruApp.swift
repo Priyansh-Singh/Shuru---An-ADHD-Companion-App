@@ -41,6 +41,11 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
     func userNotificationCenter(_ center: UNUserNotificationCenter,
                                 willPresent notification: UNNotification,
                                 withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
+        // The minimum-time note is a gentle buzz in the app instead of a banner.
+        if notification.request.identifier == "shuru.limit.min" {
+            completionHandler([])
+            return
+        }
         completionHandler([.banner, .sound])
     }
 
@@ -49,7 +54,13 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
                                 withCompletionHandler completionHandler: @escaping () -> Void) {
         let id = response.notification.request.identifier
         DispatchQueue.main.async {
-            AppStore.shared.go(to: id.hasPrefix("shuru.checkin") ? .hours : .now)
+            if id.hasPrefix("shuru.checkin") {
+                AppStore.shared.go(to: .hours)
+            } else if id == "shuru.review" {
+                AppStore.shared.go(to: .week)
+            } else {
+                AppStore.shared.go(to: .now)
+            }
         }
         completionHandler()
     }

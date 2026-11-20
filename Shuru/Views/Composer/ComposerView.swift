@@ -59,6 +59,7 @@ struct ComposerView: View {
     @State private var repeatChoice: RepeatChoice = .once
     @State private var days: Set<Int> = Set(1...7)
     @State private var backup = ""
+    @State private var routineName = ""
     @State private var breather = 0
     @State private var loaded = false
     @State private var newTypeFor: UUID?
@@ -82,6 +83,17 @@ struct ComposerView: View {
                         .pickerStyle(.segmented)
                         .listRowBackground(Color.clear)
                         .listRowInsets(EdgeInsets())
+                    }
+                }
+
+                if mode == .routine {
+                    Section {
+                        TextField("Name, e.g. Evening reset (optional)", text: $routineName)
+                            .font(.system(size: 17, weight: .medium))
+                    } header: {
+                        Text("Routine")
+                    } footer: {
+                        Text("Without a name, the first step stands in for it.")
                     }
                 }
 
@@ -333,6 +345,7 @@ struct ComposerView: View {
             days = r.days
             backup = r.backup
             breather = r.breatherMinutes
+            routineName = r.name ?? ""
         } else {
             repeatChoice = request.mode == .routine ? .everyDay : .once
             focusedStep = steps.first?.id
@@ -383,6 +396,8 @@ struct ComposerView: View {
             r.days = chosenDays ?? Set(1...7)
             r.backup = backup.trimmingCharacters(in: .whitespaces)
             r.breatherMinutes = breather
+            let n = routineName.trimmingCharacters(in: .whitespaces)
+            r.name = n.isEmpty ? nil : n
             if request.asTemplate {
                 store.upsert(template: r)
             } else {
@@ -406,6 +421,8 @@ struct ComposerView: View {
         r.days = chosenDays ?? Set(1...7)
         r.backup = backup.trimmingCharacters(in: .whitespaces)
         r.breatherMinutes = breather
+        let n = routineName.trimmingCharacters(in: .whitespaces)
+        r.name = n.isEmpty ? nil : n
         store.upsert(template: r)
         withAnimation { savedTemplate = true }
     }

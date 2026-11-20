@@ -26,6 +26,10 @@ struct NowView: View {
     @State private var buzz: Task<Void, Never>?
     @State private var finishing = false
     @State private var flow: FlowMode = .rest
+    @State private var composer: ComposerRequest?
+    @State private var moving: PlannedTask?
+    @State private var pickingDateFor: PlannedTask?
+    @State private var deleting: PlannedTask?
     @GestureState(resetTransaction: Transaction(animation: .spring(response: 0.45, dampingFraction: 0.86)))
     private var dragY: CGFloat = 0
 
@@ -88,6 +92,17 @@ struct NowView: View {
                                           accent: Theme.accent(settings.palette))
                                     .position(taskPoint)
                                     .transition(.opacity)
+                            } else if let stuck = store.stuckTask(for: current) {
+                                StuckPrompt(task: stuck, dark: dark, accent: Theme.accent(settings.palette),
+                                            breakDown: {
+                                                store.dismissStuck(stuck.id)
+                                                composer = ComposerRequest(mode: .task, task: stuck)
+                                            },
+                                            move: { moving = stuck },
+                                            keep: { withAnimation { store.dismissStuck(stuck.id) } },
+                                            delete: { deleting = stuck })
+                                    .position(taskPoint)
+                                    .transition(.opacity)
                             } else {
                                 taskLayer(current: current, now: now, fill: fill)
                                     .scaleEffect(1 - 0.12 * CGFloat(max(upReveal, doneReveal)))
@@ -134,6 +149,47 @@ struct NowView: View {
             }
             .contentShape(Rectangle())
             .simultaneousGesture(flowDrag)
+        }
+        .task(id: timingKey(current)) {
+            // Time the step that's first on Now: a gentle buzz at its minimum, a stronger one at its maximum.
+            guard let item = current, visibility.visible.contains(.now), celebration == nil, heldItem == nil,
+                  !onBreakScreen, store.pauseStage == nil else { return }
+            store.markStarted(item)
+            guard let start = store.data.startedAt[item.id] else { return }
+            if let mn = item.step.minMinutes {
+                let wait = start.addingTimeInterval(TimeInterval(mn * 60)).timeIntervalSinceNow
+                if wait > 0 {
+                    try? await Task.sleep(nanoseconds: UInt64(wait * 1_000_000_000))
+                    if Task.isCancelled { return }
+                    if settings.haptics { UIImpactFeedbackGenerator(style: .soft).impactOccurred(intensity: 0.7) }
+                }
+            }
+            if let mx = item.step.maxMinutes {
+                let wait = start.addingTimeInterval(TimeInterval(mx * 60)).timeIntervalSinceNow
+                if wait > 0 {
+                    try? await Task.sleep(nanoseconds: UInt64(wait * 1_000_000_000))
+                    if Task.isCancelled { return }
+                    if settings.haptics { UINotificationFeedbackGenerator().notificationOccurred(.warning) }
+                }
+            }
+        }
+        .sheet(item: $composer) { req in
+            ComposerView(request: req)
+        }
+        .sheet(item: $pickingDateFor) { task in
+            MoveDateSheet(task: task)
+                .presentationDetents([.medium, .large])
+        }
+        .confirmationDialog("Move it to…", isPresented: Binding(get: { moving != nil }, set: { if !$0 { moving = nil } }),
+                            titleVisibility: .visible, presenting: moving) { task in
+            Button("Tomorrow") { store.move(task: task.id, to: Day.add(1, to: Day.today)) }
+            Button("In 3 days") { store.move(task: task.id, to: Day.add(3, to: Day.today)) }
+            Button("Next week") { store.move(task: task.id, to: Day.add(7, to: store.weekStart())) }
+            Button("Pick a date…") { pickingDateFor = task }
+        }
+        .confirmationDialog("Delete “\(deleting?.title ?? "")”?", isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } }),
+                            titleVisibility: .visible, presenting: deleting) { task in
+            Button("Delete", role: .destructive) { store.delete(task: task.id) }
         }
         .sheet(item: $optionsItem) { item in
             OptionsSheet(item: item, holdMode: holdMode) { action in
@@ -184,7 +240,17 @@ struct NowView: View {
     private var canFlow: Bool { store.pauseStage == nil && pressStart == nil && celebration == nil && !onBreakScreen }
 
     /// "Take a break?" or a running break is showing instead of the task.
-    private var onBreakScreen: Bool { store.askBreak || store.data.breakUntil != nil }
+    private var onBreakScreen: Bool {
+        store.askBreak || store.data.breakUntil != nil || store.stuckTask(for: store.queue().first) != nil
+    }
+
+    private func timingKey(_ item: NowItem?) -> String {
+        [item?.id ?? "none",
+         visibility.visible.contains(.now) ? "seen" : "hidden",
+         celebration == nil ? "idle" : "party",
+         onBreakScreen ? "prompt" : "task",
+         store.pauseStage == nil ? "" : "pause"].joined(separator: "|")
+    }
 
     private var flowDrag: some Gesture {
         DragGesture(minimumDistance: 20)
@@ -322,10 +388,10 @@ struct NowView: View {
                         .font(.system(size: 13, weight: .semibold).monospacedDigit())
                         .foregroundStyle(Theme.orbSub(dark))
                 }
-                if let limit = item.step.limitText {
-                    Text(limit)
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(Theme.orbSub(dark))
+                if let line = limitLine(item, now: now) {
+                    Text(line.text)
+                        .font(.system(size: 13, weight: .semibold).monospacedDigit())
+                        .foregroundStyle(line.over ? Theme.accent(settings.palette) : Theme.orbSub(dark))
                         .multilineTextAlignment(.center)
                 }
             }
@@ -395,6 +461,24 @@ struct NowView: View {
 
     private func triggerLine(_ item: NowItem) -> String {
         item.isChain ? item.triggerLabel + " · \(item.stepIndex + 1) of \(item.stepCount)" : item.triggerLabel
+    }
+
+    /// "12 min in · at least 20 min", "25 min in · you can stop", "Over by 8 min".
+    private func limitLine(_ item: NowItem, now: Date) -> (text: String, over: Bool)? {
+        guard let limit = item.step.limitText else { return nil }
+        guard let elapsed = store.elapsed(item, at: now) else { return (limit, false) }
+        let mins = Int(elapsed / 60)
+        let spent = mins < 1 ? "Just started" : Step.duration(mins) + " in"
+        if let mx = item.step.maxMinutes, mins >= mx {
+            return ("Over by " + Step.duration(max(1, mins - mx)) + " · you said " + Step.duration(mx), true)
+        }
+        if let mn = item.step.minMinutes, mins < mn {
+            return (spent + " · at least " + Step.duration(mn), false)
+        }
+        if let mx = item.step.maxMinutes {
+            return (spent + " · you can stop · stop by " + Step.duration(mx), false)
+        }
+        return (spent + " · you can stop", false)
     }
 
     private func timerLine(_ item: NowItem, now: Date) -> String? {
@@ -599,7 +683,7 @@ struct WaitingCueButton: View {
         Button(action: start) {
             HStack(spacing: 8) {
                 Image(systemName: routine.trigger.kind.symbol)
-                Text(routine.trigger.label).lineLimit(1)
+                Text(routine.hasName ? routine.title : routine.trigger.label).lineLimit(1)
                 Text("Start").foregroundStyle(accent)
             }
             .font(.system(size: 14, weight: .semibold))
@@ -712,5 +796,92 @@ struct BreakView: View {
     private func clock(_ seconds: TimeInterval) -> String {
         let s = max(0, Int(seconds.rounded(.up)))
         return String(format: "%d:%02d", s / 60, s % 60)
+    }
+}
+
+// MARK: - Tasks that keep rolling over
+
+/// Shown instead of a task that has moved from day to day for 3+ days.
+struct StuckPrompt: View {
+    let task: PlannedTask
+    let dark: Bool
+    let accent: Color
+    let breakDown: () -> Void
+    let move: () -> Void
+    let keep: () -> Void
+    let delete: () -> Void
+
+    var body: some View {
+        let days = AppStore.daysBetween(task.date, Day.today)
+        VStack(spacing: 12) {
+            Text("This one’s been moving for \(days) days")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(Theme.orbSub(dark))
+            Text(task.title)
+                .font(.system(size: 24, weight: .semibold))
+                .tracking(-0.3)
+                .multilineTextAlignment(.center)
+            Text("That usually means it’s too big or the wrong day.")
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(Theme.orbSub(dark))
+                .multilineTextAlignment(.center)
+            VStack(spacing: 8) {
+                option("Break it into smaller steps", action: breakDown)
+                option("Move it to another day", action: move)
+                Button(action: keep) {
+                    Text("Keep it for today")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(Theme.onAccent(dark))
+                        .frame(maxWidth: .infinity, minHeight: 48)
+                        .background(accent, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(.top, 6)
+            Button("Delete it", action: delete)
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(Theme.orbSub(dark).opacity(0.8))
+                .frame(minHeight: 44)
+        }
+        .shadow(color: dark ? .black.opacity(0.5) : .white.opacity(0.7), radius: 14)
+        .frame(width: 310)
+    }
+
+    private func option(_ title: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(title)
+                .font(.system(size: 14, weight: .semibold))
+                .frame(maxWidth: .infinity, minHeight: 48)
+                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+/// "Pick a date…" for moving a task.
+struct MoveDateSheet: View {
+    @EnvironmentObject var store: AppStore
+    @Environment(\.dismiss) private var dismiss
+    let task: PlannedTask
+    @State private var date = Date().addingTimeInterval(86400)
+
+    var body: some View {
+        NavigationStack {
+            DatePicker("Day", selection: $date, in: Date()..., displayedComponents: .date)
+                .datePickerStyle(.graphical)
+                .padding(.horizontal)
+                .navigationTitle("Move “" + task.title + "”")
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("Move") {
+                            store.move(task: task.id, to: Day.key(date))
+                            dismiss()
+                        }
+                        .fontWeight(.semibold)
+                    }
+                }
+        }
     }
 }

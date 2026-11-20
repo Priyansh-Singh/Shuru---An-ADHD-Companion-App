@@ -8,6 +8,7 @@ struct WeekView: View {
     @State private var newCost = 5
     @State private var toast: String?
     @State private var undoRewards: [Reward]?
+    @State private var reviewing = false
     @FocusState private var rewardFocused: Bool
 
     private var accent: Color { Theme.accent(store.settings.palette) }
@@ -18,11 +19,13 @@ struct WeekView: View {
         let done = store.data.completions.filter { week.contains($0.day) }
         ZStack(alignment: .bottom) {
             PageScroll {
-                ScreenHeader(title: "This week", subtitle: "No streaks to break. Just a look back.")
+                ScreenHeader(title: "This week", subtitle: "A look back, and what matters next.")
+                reviewCard
                 if store.settings.tokens { tokensCard }
                 showedUpCard(week: week)
-                totalsCard(done: done)
                 routinesCard(done: done)
+                guessesCard
+                totalsCard(done: done)
             }
             if let toast {
                 Toast(text: toast, actionLabel: undoRewards == nil ? nil : "Undo") {
@@ -35,6 +38,9 @@ struct WeekView: View {
         }
         .animation(.easeOut(duration: 0.25), value: toast)
         .onAppear { store.normalizeTokens() }
+        .sheet(isPresented: $reviewing) {
+            WeeklyReviewView()
+        }
     }
 
     // MARK: Tokens
@@ -240,38 +246,172 @@ struct WeekView: View {
         .frame(minHeight: 44)
     }
 
-    private struct RankedRoutine: Identifiable {
+    // MARK: Routines and streaks
+
+    private struct RoutineStat: Identifiable {
         let routine: Routine
-        let count: Int
+        let streak: Int
+        let done: Int
+        let scheduled: Int
         var id: UUID { routine.id }
     }
 
     private func routinesCard(done: [Completion]) -> some View {
-        var counts: [UUID: Int] = [:]
-        for c in done where c.isRoutine && c.finishedWhole {
-            if let id = c.refID { counts[id, default: 0] += 1 }
+        let stats: [RoutineStat] = store.data.routines.filter { $0.enabled }.map { r in
+            let w = store.weekProgress(r)
+            return RoutineStat(routine: r, streak: store.streak(r), done: w.done, scheduled: w.scheduled)
         }
-        let ranked: [RankedRoutine] = store.data.routines
-            .compactMap { r in counts[r.id].map { RankedRoutine(routine: r, count: $0) } }
-            .sorted { $0.count > $1.count }
+        .filter { $0.scheduled > 0 || $0.streak > 0 }
+        .sorted { ($0.streak, $0.done) > ($1.streak, $1.done) }
         return Card {
-            CardHeader("Routines that worked")
-            if ranked.isEmpty {
-                Text("Finish a routine and it shows up here.")
+            CardHeader("Routines")
+            if stats.isEmpty {
+                Text("Routines that run this week show up here, with how often you kept up.")
                     .font(.system(size: 14))
                     .foregroundStyle(.secondary)
                     .padding(.horizontal, 16)
                     .padding(.vertical, 8)
             }
-            ForEach(ranked) { item in
-                HStack {
-                    Text(item.routine.title).font(.system(size: 16))
+            ForEach(stats) { st in
+                HStack(spacing: 12) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(st.routine.title).font(.system(size: 16))
+                        Text("\(st.done) of \(st.scheduled) this week")
+                            .font(.system(size: 13))
+                            .foregroundStyle(.secondary)
+                    }
                     Spacer()
-                    Text(item.count == 1 ? "Once" : "\(item.count) times").font(.system(size: 13)).foregroundStyle(.secondary)
+                    if st.streak >= 2 {
+                        StreakBadge(count: st.streak, tint: accent)
+                    }
                 }
                 .padding(.horizontal, 16)
-                .frame(minHeight: 44)
+                .frame(minHeight: 52)
+                .accessibilityElement(children: .combine)
             }
         }
+    }
+
+    // MARK: Time guesses
+
+    private var guessesCard: some View {
+        let start = store.weekStart()
+        let timed = store.data.completions
+            .filter { $0.day >= Day.add(-7, to: start) && $0.seconds != nil && $0.guessMinutes != nil }
+            .sorted { $0.at > $1.at }
+        let ratios: [Double] = timed.compactMap { c in
+            guard let s = c.seconds, let g = c.guessMinutes, g > 0 else { return nil }
+            return Double(s) / Double(g * 60)
+        }
+        let avg = ratios.isEmpty ? 0 : ratios.reduce(0, +) / Double(ratios.count)
+        return Card {
+            CardHeader("Time guesses")
+            if timed.isEmpty {
+                Text("Give a step a time limit and finish it on Now. Shuru compares the limit you set with how long it really took.")
+                    .font(.system(size: 14))
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 8)
+            } else {
+                Text(guessSummary(avg))
+                    .font(.system(size: 15, weight: .semibold))
+                    .padding(.horizontal, 16)
+                    .padding(.bottom, 6)
+                ForEach(timed.prefix(5)) { c in
+                    let took = Int(((Double(c.seconds ?? 0)) / 60).rounded())
+                    let guess = c.guessMinutes ?? 0
+                    HStack {
+                        Text(c.title).font(.system(size: 15)).lineLimit(1)
+                        Spacer()
+                        Text("limit " + Step.duration(guess) + " · took " + Step.duration(max(1, took)))
+                            .font(.system(size: 13).monospacedDigit())
+                            .foregroundStyle(took > guess ? accent : .secondary)
+                    }
+                    .padding(.horizontal, 16)
+                    .frame(minHeight: 40)
+                }
+            }
+        }
+    }
+
+    private func guessSummary(_ ratio: Double) -> String {
+        if ratio == 0 { return "" }
+        if ratio > 1.15 { return String(format: "You usually take %.1f× the time you set.", ratio) }
+        if ratio < 0.6 { return "You usually finish well inside your limits." }
+        return "Your limits are close to how long things really take."
+    }
+
+    // MARK: Weekly review
+
+    @ViewBuilder
+    private var reviewCard: some View {
+        if let focus = store.currentFocus() {
+            Card {
+                CardHeader(focus.week == store.weekStart() ? "This week’s focus" : "Next week’s focus") {
+                    Button("Redo") { reviewing = true }
+                        .font(.system(size: 14, weight: .semibold))
+                        .frame(minHeight: 44)
+                        .padding(.horizontal, 8)
+                }
+                ForEach(Array(focus.review.focuses.enumerated()), id: \.offset) { pair in
+                    let isDone = pair.offset < focus.review.focusDone.count && focus.review.focusDone[pair.offset]
+                    Button {
+                        store.toggleFocus(week: focus.week, index: pair.offset)
+                    } label: {
+                        HStack(spacing: 12) {
+                            CheckCircle(done: isDone, tint: accent).frame(width: 44)
+                            Text(pair.element)
+                                .font(.system(size: 16))
+                                .strikethrough(isDone)
+                                .foregroundStyle(isDone ? .secondary : .primary)
+                            Spacer()
+                        }
+                        .frame(minHeight: 48)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.leading, 2)
+                }
+            }
+        } else {
+            Button {
+                reviewing = true
+            } label: {
+                HStack(spacing: 14) {
+                    Image(systemName: "calendar.badge.checkmark")
+                        .font(.system(size: 20))
+                        .foregroundStyle(accent)
+                        .frame(width: 32)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Weekly review").font(.system(size: 16, weight: .semibold))
+                        Text("5 minutes: look back, clear what’s slipping, pick what matters next.")
+                            .font(.system(size: 13))
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer(minLength: 4)
+                    Image(systemName: "chevron.right").font(.system(size: 13, weight: .semibold)).foregroundStyle(.secondary)
+                }
+                .padding(16)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Theme.card, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+            }
+            .buttonStyle(.plain)
+        }
+    }
+
+}
+
+struct StreakBadge: View {
+    let count: Int
+    let tint: Color
+
+    var body: some View {
+        HStack(spacing: 4) {
+            Image(systemName: "flame.fill").font(.system(size: 12))
+            Text("\(count) in a row").font(.system(size: 13, weight: .semibold).monospacedDigit())
+        }
+        .foregroundStyle(tint)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(count) in a row")
     }
 }

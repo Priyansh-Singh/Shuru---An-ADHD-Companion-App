@@ -63,7 +63,7 @@ struct RoutinesView: View {
     private var templateItems: [TemplateItem] {
         let mine = store.data.templates.map { r in
             TemplateItem(id: "mine-" + r.id.uuidString,
-                         name: r.trigger.label,
+                         name: r.hasName ? r.title : r.trigger.label,
                          detail: stepsSummary(r),
                          symbol: r.trigger.kind.symbol,
                          userTemplate: r,
@@ -203,6 +203,11 @@ struct RoutineRow: View {
                             .font(.system(size: 13))
                             .foregroundStyle(.secondary)
                             .lineLimit(2)
+                        let streak = store.streak(routine)
+                        if routine.enabled && streak >= 2 {
+                            StreakBadge(count: streak, tint: Theme.accent(store.settings.palette))
+                                .padding(.top, 2)
+                        }
                     }
                     Spacer(minLength: 0)
                 }
@@ -227,6 +232,7 @@ struct RoutineRow: View {
 
     private func subtitle(type: TaskType) -> String {
         var parts = [routine.trigger.label, Day.daysLabel(routine.days), type.name]
+        if routine.hasName, let first = routine.steps.first?.title { parts.insert("Starts with: " + first, at: 0) }
         if let w = routine.trigger.windowLabel { parts.append(w) }
         if routine.trigger.kind == .place && routine.trigger.place != nil { parts.append("Starts when you arrive") }
         if routine.steps.count > 1 { parts.append("\(routine.steps.count) steps") }
@@ -248,26 +254,26 @@ struct RoutineTemplate: Identifiable {
                     steps: [Step(title: "Take a bath", smaller: "Just turn on the water", typeID: "care"),
                             Step(title: "Eat dinner", smaller: "Just heat something up", typeID: "care"),
                             Step(title: "Sit down to study", smaller: "Just open your notes", typeID: "study", minMinutes: 2, maxMinutes: 180)],
-                    days: [2, 3, 4, 5, 6])
+                    days: [2, 3, 4, 5, 6], name: "Coming home")
         },
         RoutineTemplate(id: "morning", name: "Morning start", detail: "Water, meds, look at the day", symbol: "sunrise") {
             Routine(trigger: Trigger(kind: .time, hour: 8, minute: 0),
                     steps: [Step(title: "Drink a glass of water", smaller: "Just fill the glass", typeID: "care"),
                             Step(title: "Take your meds", smaller: "Just open the box", typeID: "care"),
                             Step(title: "Look at today’s plan", smaller: "Just open the calendar", typeID: "other")],
-                    days: Set(1...7))
+                    days: Set(1...7), name: "Morning start")
         },
         RoutineTemplate(id: "laundry", name: "Saturday laundry", detail: "Start a load, then fold", symbol: "washer") {
             Routine(trigger: Trigger(kind: .after, text: "After breakfast"),
                     steps: [Step(title: "Start a load of laundry", smaller: "Just gather the clothes", typeID: "chores"),
                             Step(title: "Fold and put away", smaller: "Just fold five things", typeID: "chores")],
-                    days: [7])
+                    days: [7], name: "Laundry")
         },
         RoutineTemplate(id: "bed", name: "Before bed", detail: "Keys by the door, phone on charge", symbol: "moon") {
             Routine(trigger: Trigger(kind: .time, hour: 22, minute: 30),
                     steps: [Step(title: "Put your keys by the door", smaller: "Just find your keys", typeID: "chores"),
                             Step(title: "Phone on charge, away from bed", smaller: "Just plug it in", typeID: "rest")],
-                    days: Set(1...7))
+                    days: Set(1...7), name: "Before bed")
         }
     ]
 }

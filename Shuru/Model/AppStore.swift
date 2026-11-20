@@ -493,7 +493,7 @@ final class AppStore: ObservableObject {
             let idx = data.progress[base] ?? 0
             guard idx < r.steps.count else { continue }
             let item = NowItem(kind: .routine, refID: r.id, day: day, stepIndex: idx, stepCount: r.steps.count,
-                               step: r.steps[idx], triggerLabel: r.trigger.label, rolledFrom: nil)
+                               step: r.steps[idx], triggerLabel: r.hasName ? r.title : r.trigger.label, rolledFrom: nil)
             if r.trigger.isCue {
                 // Waits for its cue: arriving somewhere, a Start tap, or a Shortcut.
                 guard let at = data.started[base] else { continue }
@@ -565,9 +565,17 @@ final class AppStore: ObservableObject {
         }
 
         let earned = whole ? earnToken() : false
-        data.completions.append(Completion(title: item.step.title, typeID: item.step.typeID, at: Date(), refID: item.refID,
-                                           isRoutine: item.kind == .routine, stepIndex: item.stepIndex,
-                                           finishedWhole: whole, earnedToken: earned))
+        var record = Completion(title: item.step.title, typeID: item.step.typeID, at: Date(), refID: item.refID,
+                                isRoutine: item.kind == .routine, stepIndex: item.stepIndex,
+                                finishedWhole: whole, earnedToken: earned)
+        if let start = data.startedAt[item.id] {
+            record.seconds = max(0, Int(Date().timeIntervalSince(start)))
+            record.limitMin = item.step.minMinutes
+            record.limitMax = item.step.maxMinutes
+        }
+        data.completions.append(record)
+        data.startedAt[item.id] = nil
+        Notifications.cancelLimits()
         if whole {
             data.notNow[item.day]?.removeAll { $0 == base }
             if data.pinned[item.day] == base { data.pinned[item.day] = nil }
@@ -602,6 +610,8 @@ final class AppStore: ObservableObject {
         if data.pinned[item.day] == item.baseKey { data.pinned[item.day] = nil }
         data.pushes[item.refID.uuidString, default: 0] += 1
         if timer?.itemID == item.id { timer = nil }
+        data.startedAt[item.id] = nil
+        Notifications.cancelLimits()
     }
 
     func pushes(_ item: NowItem) -> Int { data.pushes[item.refID.uuidString] ?? 0 }
@@ -697,6 +707,127 @@ final class AppStore: ObservableObject {
         if let i = data.routines.firstIndex(where: { $0.id == id }) { data.routines[i].enabled = on }
     }
 
+    // MARK: Time on the current step
+
+    /// Starts timing the step that's now first on Now (once). Only one step is timed at a time.
+    func markStarted(_ item: NowItem) {
+        guard data.startedAt[item.id] == nil else { return }
+        let now = Date()
+        data.startedAt = [item.id: now]
+        Notifications.scheduleLimits(for: item.step, title: displayTitle(item), from: now)
+    }
+
+    func elapsed(_ item: NowItem, at now: Date = Date()) -> TimeInterval? {
+        data.startedAt[item.id].map { now.timeIntervalSince($0) }
+    }
+
+    // MARK: Tasks that keep rolling over
+
+    static func daysBetween(_ a: String, _ b: String) -> Int {
+        Day.calendar.dateComponents([.day], from: Day.date(a), to: Day.date(b)).day ?? 0
+    }
+
+    /// The task behind `item` if it has rolled over for 3+ days and we haven't asked about it today.
+    func stuckTask(for item: NowItem?) -> PlannedTask? {
+        guard let item, item.kind == .task, let from = item.rolledFrom,
+              AppStore.daysBetween(from, Day.today) >= 3,
+              data.stuckAsked[item.refID.uuidString] != Day.today else { return nil }
+        return data.tasks.first { $0.id == item.refID }
+    }
+
+    func dismissStuck(_ id: UUID) {
+        data.stuckAsked[id.uuidString] = Day.today
+    }
+
+    func move(task id: UUID, to day: String) {
+        if let i = data.tasks.firstIndex(where: { $0.id == id }) {
+            data.tasks[i].date = day
+        }
+        dismissStuck(id)
+    }
+
+    // MARK: Routine streaks
+
+    func doneDays(_ r: Routine) -> Set<String> {
+        Set(data.completions.filter { $0.isRoutine && $0.finishedWhole && $0.refID == r.id }.map(\.day))
+    }
+
+    /// Scheduled days in a row you finished the routine. Days it doesn't run don't break it,
+    /// and today doesn't count against you until it's over.
+    func streak(_ r: Routine) -> Int {
+        let done = doneDays(r)
+        var day = Day.today
+        if !done.contains(day) { day = Day.add(-1, to: day) }
+        var count = 0
+        for _ in 0..<400 {
+            if r.runs(on: day) {
+                if done.contains(day) { count += 1 } else { break }
+            }
+            day = Day.add(-1, to: day)
+        }
+        return count
+    }
+
+    /// How many of this week's scheduled days so far you did it.
+    func weekProgress(_ r: Routine) -> (done: Int, scheduled: Int) {
+        let done = doneDays(r)
+        let start = weekStart()
+        var d = 0, s = 0
+        var day = start
+        while day <= Day.today {
+            if r.runs(on: day) {
+                s += 1
+                if done.contains(day) { d += 1 }
+            }
+            day = Day.add(1, to: day)
+        }
+        return (d, s)
+    }
+
+    // MARK: Weekly review
+
+    /// Reviews done near the end of a week plan the next one.
+    func reviewTargetWeek() -> String {
+        let start = weekStart()
+        let pos = AppStore.daysBetween(start, Day.today)
+        return pos >= 5 ? Day.add(7, to: start) : start
+    }
+
+    /// The focus to show on This week: this week's, or next week's if you've already planned it.
+    func currentFocus() -> (week: String, review: WeeklyReview)? {
+        let this = weekStart()
+        if let r = data.reviews[this], !r.focuses.isEmpty { return (this, r) }
+        let next = Day.add(7, to: this)
+        if let r = data.reviews[next], !r.focuses.isEmpty { return (next, r) }
+        return nil
+    }
+
+    /// Saves the review. Earns a token the first time for that week.
+    @discardableResult
+    func saveReview(focuses: [String]) -> Bool {
+        let key = reviewTargetWeek()
+        let cleaned = focuses.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
+        let first = data.reviews[key] == nil
+        data.reviews[key] = WeeklyReview(done: Date(), focuses: cleaned, focusDone: cleaned.map { _ in false })
+        return first ? earnToken() : false
+    }
+
+    func toggleFocus(week: String, index: Int) {
+        guard var r = data.reviews[week], index < r.focuses.count else { return }
+        if r.focusDone.count < r.focuses.count { r.focusDone += Array(repeating: false, count: r.focuses.count - r.focusDone.count) }
+        r.focusDone[index].toggle()
+        data.reviews[week] = r
+    }
+
+    /// Once tasks still open from earlier days, plus ones you keep pushing back.
+    func slippingTasks() -> [PlannedTask] {
+        let today = Day.today
+        let open = data.tasks.filter { !$0.isRepeating && !$0.isDone(on: today) }
+        let old = open.filter { $0.date < today }
+        let pushed = open.filter { $0.date >= today && (data.pushes[$0.id.uuidString] ?? 0) >= 2 }
+        return Array((old.sorted { $0.date < $1.date } + pushed).prefix(8))
+    }
+
     // MARK: Cue routines
 
     func hasStarted(_ r: Routine, day: String = Day.today) -> Bool {
@@ -725,7 +856,7 @@ final class AppStore: ObservableObject {
         data.started[base] = Date()
         data.notNow[day]?.removeAll { $0 == base }
         if announce {
-            Notifications.announce(id: r.id.uuidString, title: r.trigger.label,
+            Notifications.announce(id: r.id.uuidString, title: r.hasName ? r.title : r.trigger.label,
                                    body: "First: " + r.steps[0].title + (r.steps.count > 1 ? " (1 of \(r.steps.count))" : ""))
         }
     }
@@ -862,7 +993,7 @@ final class AppStore: ObservableObject {
                         Step(title: "Eat dinner", smaller: "Just heat something up", typeID: "care"),
                         Step(title: "Sit down to study", smaller: "Just open your notes", typeID: "study", minMinutes: 2, maxMinutes: 180)
                     ],
-                    days: [2, 3, 4, 5, 6]),
+                    days: [2, 3, 4, 5, 6], name: "Coming home"),
             Routine(trigger: Trigger(kind: .time, hour: 21, minute: 0),
                     steps: [Step(title: "Put your keys by the door", smaller: "Just find your keys", typeID: "chores")],
                     days: Set(1...7))

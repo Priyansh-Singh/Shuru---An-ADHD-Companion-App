@@ -106,9 +106,11 @@ struct DayFlowColumn: View {
             let steps: [Step]
             var header: String = item.triggerLabel
             var symbol = "checkmark.circle"
+            var cue: String? = nil
             if item.kind == .routine, let r = store.data.routines.first(where: { $0.id == item.refID }) {
                 steps = r.steps
-                header = r.trigger.label
+                header = r.title
+                cue = r.hasName ? r.trigger.label : nil
                 symbol = r.trigger.kind.symbol
             } else if let t = store.data.tasks.first(where: { $0.id == item.refID }) {
                 steps = t.steps
@@ -120,7 +122,8 @@ struct DayFlowColumn: View {
             let from = i == 0 ? item.stepIndex + 1 : item.stepIndex
             if i > 0 {
                 let progress: String? = item.stepCount > 1 ? "\(item.stepIndex + 1) of \(item.stepCount)" : nil
-                list.append(FlowEntry(id: "h-" + item.baseKey, title: header, meta: progress, symbol: symbol, isHeader: true))
+                let meta = [cue, progress].compactMap { $0 }.joined(separator: " · ")
+                list.append(FlowEntry(id: "h-" + item.baseKey, title: header, meta: meta.isEmpty ? nil : meta, symbol: symbol, isHeader: true))
             }
             if from < steps.count {
                 for j in from..<steps.count {
@@ -134,7 +137,8 @@ struct DayFlowColumn: View {
             var detail = r.trigger.windowLabel ?? "Waiting"
             if r.trigger.kind == .place && r.trigger.place != nil { detail += " · on arrival" }
             let canStart = r.trigger.inWindow()
-            list.append(FlowEntry(id: "w-" + r.id.uuidString, title: r.trigger.label, meta: detail, symbol: r.trigger.kind.symbol,
+            if r.hasName { detail = r.trigger.label + " · " + detail }
+            list.append(FlowEntry(id: "w-" + r.id.uuidString, title: r.hasName ? r.title : r.trigger.label, meta: detail, symbol: r.trigger.kind.symbol,
                                   isHeader: true, dimmed: true, startRoutine: canStart ? r.id : nil))
             for (j, s) in r.steps.enumerated() {
                 list.append(FlowEntry(id: "w-" + r.id.uuidString + "#" + String(j), title: s.title, meta: meta(s),

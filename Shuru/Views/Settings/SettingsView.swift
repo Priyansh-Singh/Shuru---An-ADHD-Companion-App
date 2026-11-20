@@ -36,6 +36,9 @@ struct SettingsView: View {
                     Text("Sunday").tag(false)
                     Text("Monday").tag(true)
                 }
+                Toggle(isOn: $store.data.settings.reviewReminder) {
+                    labeled("Weekly review reminder", "7 pm on the last day of your week")
+                }
             }
 
             Section("Now screen") {
