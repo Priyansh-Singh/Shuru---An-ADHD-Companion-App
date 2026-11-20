@@ -26,7 +26,7 @@ Everything stays on your phone. There is no account and no server.
 In SideStore or AltStore, go to **Sources** → **+** and paste:
 
 ```
-https://github.com/Priyansh-Singh/Shuru---An-ADHD-Companion-App/releases/download/latest/source.json
+https://github.com/Priyansh-Singh/Shuru---An-ADHD-Companion-App/releases/latest/download/source.json
 ```
 
 Shuru then shows up in the source with an **Install** button, and every new build appears as an update.
@@ -35,7 +35,7 @@ Shuru then shows up in the source with an **Install** button, and every new buil
 
 Every push to `main` builds an unsigned `.ipa` with GitHub Actions.
 
-1. Download **Shuru.ipa** from the [latest release](../../releases/tag/latest).
+1. Download **Shuru.ipa** from the [latest release](../../releases/latest). Every version also has its own release under [Releases](../../releases).
 2. Open it with **SideStore**, **AltStore** or **LiveContainer**. They sign it with your own Apple ID.
 3. With a free Apple ID, refresh it in SideStore or AltStore every 7 days.
 

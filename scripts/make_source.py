@@ -73,7 +73,7 @@ source = {
                     "marketingVersion": f"{version} ({build})",
                     "date": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
                     "localizedDescription": notes[0] if notes else "New build.",
-                    "downloadURL": f"{base}/releases/download/latest/Shuru.ipa",
+                    "downloadURL": f"{base}/releases/download/v{version}/Shuru.ipa",
                     "size": os.path.getsize(ipa),
                     "minOSVersion": "17.0",
                 }

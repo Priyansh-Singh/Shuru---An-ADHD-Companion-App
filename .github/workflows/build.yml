@@ -75,13 +75,33 @@ jobs:
           name: Shuru-ipa
           path: Shuru.ipa
 
-      - name: Publish "latest" release
+      - name: Publish release
         if: github.ref == 'refs/heads/main'
         env:
           GH_TOKEN: ${{ github.token }}
+          COMMIT_MSG: ${{ github.event.head_commit.message }}
         run: |
+          REPO_URL="https://github.com/${{ github.repository }}"
+          {
+            echo "${COMMIT_MSG:-New build.}"
+            echo
+            echo "---"
+            echo "Unsigned build ${{ github.run_number }} of commit ${GITHUB_SHA::7}. Install it with SideStore, AltStore or LiveContainer, which sign it with your own Apple ID."
+            echo
+            echo "SideStore / AltStore source: $REPO_URL/releases/latest/download/source.json"
+          } > notes.md
+
+          # One release per version, marked as the latest.
+          gh release create "v$APP_VERSION" Shuru.ipa source.json \
+            --title "Shuru $APP_VERSION" \
+            --notes-file notes.md \
+            --target "$GITHUB_SHA" \
+            --latest
+
+          # Rolling copy under the old "latest" tag, so links added before versioned releases keep working.
           gh release delete latest --yes --cleanup-tag || true
           gh release create latest Shuru.ipa source.json \
-            --title "Shuru (latest build)" \
-            --notes "Build ${{ github.run_number }} (commit ${GITHUB_SHA::7}). Unsigned: install it with SideStore, AltStore or LiveContainer, which sign it with your own Apple ID. SideStore source: https://github.com/${{ github.repository }}/releases/download/latest/source.json" \
-            --target "$GITHUB_SHA"
+            --title "Rolling build (for older links)" \
+            --notes "Same as Shuru $APP_VERSION. Kept so older links keep working; use $REPO_URL/releases/latest instead." \
+            --target "$GITHUB_SHA" \
+            --prerelease
