@@ -46,9 +46,11 @@ struct NowView: View {
                         .animation(.easeInOut(duration: 3.2), value: store.breathPhase)
                         .position(center)
 
-                    Ellipse()
-                        .fill(RadialGradient(colors: [scrimColor, scrimColor.opacity(0)], center: .center, startRadius: 0, endRadius: 170))
-                        .frame(width: 340, height: 220)
+                    Rectangle()
+                        .fill(EllipticalGradient(colors: [scrimColor, scrimColor.opacity(0)], center: .center,
+                                                 startRadiusFraction: 0, endRadiusFraction: 0.5))
+                        .frame(width: 380, height: 260)
+                        .allowsHitTesting(false)
                         .position(center)
                         .accessibilityHidden(true)
 
