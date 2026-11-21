@@ -101,8 +101,12 @@ struct DayFlowColumn: View {
     /// Coming up, nearest first, then reversed so the nearest sits just above the task.
     private func upcomingEntries() -> [FlowEntry] {
         var list: [FlowEntry] = []
-        let queue = store.queue()
-        for (i, item) in queue.enumerated() {
+        let due = store.queue()
+        let later = store.laterToday()
+        for (i, item) in (due + later).enumerated() {
+            // The first due step is the big text on Now; everything else gets a header.
+            let isCurrent = i == 0 && !due.isEmpty
+            let at = i >= due.count ? store.startsAt(item) : nil
             let steps: [Step]
             var header: String = item.triggerLabel
             var symbol = "checkmark.circle"
@@ -118,11 +122,11 @@ struct DayFlowColumn: View {
             } else {
                 continue
             }
-            // The current step is the big text on Now, so the flow starts after it.
-            let from = i == 0 ? item.stepIndex + 1 : item.stepIndex
-            if i > 0 {
+            let from = isCurrent ? item.stepIndex + 1 : item.stepIndex
+            if !isCurrent {
                 let progress: String? = item.stepCount > 1 ? "\(item.stepIndex + 1) of \(item.stepCount)" : nil
-                let meta = [cue, progress].compactMap { $0 }.joined(separator: " · ")
+                let meta = [at.map { "At " + $0 }, cue, progress].compactMap { $0 }.joined(separator: " · ")
+                if item.kind == .task, at != nil { header = "Task" }
                 list.append(FlowEntry(id: "h-" + item.baseKey, title: header, meta: meta.isEmpty ? nil : meta, symbol: symbol, isHeader: true))
             }
             if from < steps.count {

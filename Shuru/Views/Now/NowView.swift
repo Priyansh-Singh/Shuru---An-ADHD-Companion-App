@@ -15,6 +15,8 @@ struct NowView: View {
     @ObservedObject private var visibility = PagerVisibility.shared
 
     @State private var pressStart: Date?
+    /// Ticks while Now is on screen, so something scheduled for later shows up when its time comes.
+    @State private var minuteTick = Date()
     @State private var releaseAt: Date?
     @State private var releaseFrom: Double = 0
     @State private var celebration: CelebrationState?
@@ -41,6 +43,8 @@ struct NowView: View {
     private var holdMode: Bool { settings.holdSeconds > 0 }
 
     var body: some View {
+        // Read the clock tick so Now picks up anything whose time has just come.
+        let _ = minuteTick
         let current = heldItem ?? store.queue().first
         GeometryReader { geo in
             let h = geo.size.height
@@ -158,6 +162,9 @@ struct NowView: View {
             }
             .contentShape(Rectangle())
             .simultaneousGesture(flowDrag)
+        }
+        .onReceive(Timer.publish(every: 20, on: .main, in: .common).autoconnect()) { date in
+            if visibility.visible.contains(.now) { minuteTick = date }
         }
         .task(id: timingKey(current)) {
             // Time the step that's first on Now: a gentle buzz at its minimum, a stronger one at its maximum.
@@ -318,7 +325,7 @@ struct NowView: View {
     @ViewBuilder
     private func flowHandles(height: CGFloat) -> some View {
         let queue = store.queue()
-        let comingCount = max(0, queue.count - 1) + store.cueRoutinesNotStarted().count
+        let comingCount = max(0, queue.count - 1) + store.laterToday().count + store.cueRoutinesNotStarted().count
         let doneCount = store.completions(on: Day.today).count
         VStack {
             Button {
@@ -429,15 +436,17 @@ struct NowView: View {
             .accessibilityAction(named: "Options") { optionsItem = item }
         } else {
             let waiting = store.waitingRoutines()
+            let next = store.laterToday().first
+            let nextLine: String? = next.flatMap { n in store.startsAt(n).map { "Next at " + $0 + ": " + store.displayTitle(n) } }
             VStack(spacing: 16) {
                 Button {
                     store.go(to: .calendar)
                 } label: {
                     VStack(spacing: 12) {
-                        Text("That’s everything.")
+                        Text(next == nil ? "That’s everything." : "Free for now.")
                             .font(.system(size: 26, weight: .semibold))
                             .foregroundStyle(.primary)
-                        Text(waiting.isEmpty ? "Nothing next. Go enjoy it." : "Nothing else until one of these happens.")
+                        Text(nextLine ?? (waiting.isEmpty ? "Nothing next. Go enjoy it." : "Nothing else until one of these happens."))
                             .font(.system(size: 13, weight: .medium))
                             .foregroundStyle(Theme.orbSub(dark))
                     }

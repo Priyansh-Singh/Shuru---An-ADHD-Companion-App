@@ -489,8 +489,33 @@ final class AppStore: ObservableObject {
     }
 
     /// The ordered list of things to do today. The first one is shown on Now.
-    func queue(day: String = Day.today) -> [NowItem] {
+    /// What's due now, in order: timed things whose time has come, then untimed ones.
+    /// Anything scheduled for later today waits in `laterToday()` until its time.
+    func queue(day: String = Day.today) -> [NowItem] { plan(day: day).due }
+
+    /// Timed tasks and routines whose time hasn't come yet today, soonest first.
+    func laterToday(day: String = Day.today) -> [NowItem] { plan(day: day).later }
+
+    /// "6 pm" for something scheduled at a time.
+    func startsAt(_ item: NowItem) -> String? {
+        if item.kind == .routine, let r = data.routines.first(where: { $0.id == item.refID }), r.trigger.kind == .time {
+            return Day.clock(hour: r.trigger.hour, minute: r.trigger.minute)
+        }
+        if item.kind == .task, let t = data.tasks.first(where: { $0.id == item.refID }), let h = t.timeHour {
+            return Day.clock(hour: h, minute: t.timeMinute)
+        }
+        return nil
+    }
+
+    /// Minutes into the day for a clock time. Before the new-day hour counts as late night (1 am is 25:00).
+    private func dayMinutes(hour: Int, minute: Int) -> Int {
+        (hour < Day.startHour ? hour + 24 : hour) * 60 + minute
+    }
+
+    private func plan(day: String) -> (due: [NowItem], later: [NowItem]) {
         let nowMinutes = Day.hour(of: Date()) * 60 + Day.calendar.component(.minute, from: Date())
+        // A day other than today: nothing is "later", it's all just the plan.
+        let isToday = day == Day.today
         var entries: [(item: NowItem, bucket: Int, minutes: Int, order: Int)] = []
         var order = 0
 
@@ -506,8 +531,8 @@ final class AppStore: ObservableObject {
                 let c = Day.calendar.dateComponents([.hour, .minute], from: at)
                 entries.append((item, 0, (c.hour ?? 0) * 60 + (c.minute ?? 0), order))
             } else {
-                let bucket = r.trigger.minutesOfDay <= nowMinutes ? 0 : 2
-                entries.append((item, bucket, r.trigger.minutesOfDay, order))
+                let at = dayMinutes(hour: r.trigger.hour, minute: r.trigger.minute)
+                entries.append((item, isToday && at > nowMinutes ? 2 : 0, at, order))
             }
             order += 1
         }
@@ -521,8 +546,10 @@ final class AppStore: ObservableObject {
             if let rolled { label = "From " + Day.shortWeekdays[Day.weekday(rolled) - 1] }
             let item = NowItem(kind: .task, refID: t.id, day: day, stepIndex: idx, stepCount: t.steps.count,
                                step: t.steps[idx], triggerLabel: label, rolledFrom: rolled)
-            let minutes = t.timeHour.map { $0 * 60 + t.timeMinute }
-            let bucket = minutes.map { $0 <= nowMinutes ? 0 : 2 } ?? 1
+            let minutes = t.timeHour.map { dayMinutes(hour: $0, minute: t.timeMinute) }
+            // Rolled over from an earlier day: it's overdue, whatever time it had.
+            let bucket: Int
+            if let minutes, rolled == nil { bucket = isToday && minutes > nowMinutes ? 2 : 0 } else { bucket = minutes == nil ? 1 : 0 }
             entries.append((item, bucket, minutes ?? 0, order))
             order += 1
         }
@@ -532,7 +559,8 @@ final class AppStore: ObservableObject {
             if a.minutes != b.minutes { return a.minutes < b.minutes }
             return a.order < b.order
         }
-        var items = entries.map { $0.item }
+        let later = entries.filter { $0.bucket == 2 }.map(\.item)
+        var items = entries.filter { $0.bucket != 2 }.map(\.item)
 
         let pushed = data.notNow[day] ?? []
         if !pushed.isEmpty {
@@ -544,7 +572,7 @@ final class AppStore: ObservableObject {
             let it = items.remove(at: i)
             items.insert(it, at: 0)
         }
-        return items
+        return (items, later)
     }
 
     func isSmaller(_ item: NowItem) -> Bool { data.smaller.contains(item.id) }
