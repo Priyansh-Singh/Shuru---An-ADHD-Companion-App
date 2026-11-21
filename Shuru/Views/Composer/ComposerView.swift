@@ -155,6 +155,7 @@ struct ComposerView: View {
                     }
                 }
             }
+            .scrollDismissesKeyboard(.interactively)
             .navigationTitle(title)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

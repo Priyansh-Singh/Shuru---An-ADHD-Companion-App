@@ -206,6 +206,7 @@ struct SettingsView: View {
             }
             .listRowBackground(Color.clear)
         }
+        .scrollDismissesKeyboard(.interactively)
         .scrollContentBackground(.hidden)
         .background(Theme.background)
         .confirmationDialog("Delete all tasks, routines, history and tokens?", isPresented: $confirmReset, titleVisibility: .visible) {

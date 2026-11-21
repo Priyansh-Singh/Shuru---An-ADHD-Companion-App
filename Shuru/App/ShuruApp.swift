@@ -20,6 +20,7 @@ struct ShuruApp: App {
             case .active:
                 store.becameActive()
                 Backup.shared.backUpIfStale(store)
+                KeyboardDismisser.shared.install()
             case .background:
                 store.saveNow()
                 Backup.shared.backUpInBackground(store)

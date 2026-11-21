@@ -21,18 +21,23 @@ struct WeeklyReviewView: View {
 
     var body: some View {
         NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 18) {
-                    progressDots
-                    switch step {
-                    case .lookBack: lookBack
-                    case .slipping: slipping
-                    case .goals: goalsStep
-                    case .focus: focusStep
-                    case .done: doneStep
+            GeometryReader { geo in
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 18) {
+                        progressDots
+                        switch step {
+                        case .lookBack: lookBack
+                        case .slipping: slipping
+                        case .goals: goalsStep
+                        case .focus: focusStep
+                        case .done: doneStep
+                        }
                     }
+                    .padding(20)
+                    .frame(maxWidth: .infinity, minHeight: geo.size.height, alignment: .topLeading)
+                    .dismissesKeyboardOnBlankTap()
                 }
-                .padding(20)
+                .scrollDismissesKeyboard(.interactively)
             }
             .background(Theme.background)
             .navigationTitle("Weekly review")

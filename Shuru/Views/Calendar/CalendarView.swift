@@ -465,9 +465,13 @@ struct InlineAdd: View {
     let accent: Color
     let submit: () -> Void
 
+    private var isEmpty: Bool { text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+
     var body: some View {
         HStack(spacing: 6) {
-            Button(action: submit) {
+            Button {
+                if isEmpty { focused.wrappedValue = true } else { submit() }
+            } label: {
                 Image(systemName: "plus")
                     .font(.system(size: 17, weight: .semibold))
                     .foregroundStyle(accent)
@@ -479,7 +483,10 @@ struct InlineAdd: View {
                 .font(.system(size: 16))
                 .focused(focused)
                 .submitLabel(.done)
-                .onSubmit(submit)
+                .onSubmit {
+                    // Nothing typed: the tick just puts the keyboard away.
+                    if isEmpty { focused.wrappedValue = false } else { submit() }
+                }
         }
         .padding(.leading, 2)
         .padding(.trailing, 16)

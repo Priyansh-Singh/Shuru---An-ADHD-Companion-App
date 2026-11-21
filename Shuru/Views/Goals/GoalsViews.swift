@@ -295,6 +295,7 @@ struct GoalEditor: View {
                     }
                 }
             }
+            .scrollDismissesKeyboard(.interactively)
             .navigationTitle(editing ? "Edit goal" : "New goal")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

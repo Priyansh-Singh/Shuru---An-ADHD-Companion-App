@@ -398,6 +398,7 @@ struct HourEditor: View {
                     }
                 }
             }
+            .scrollDismissesKeyboard(.interactively)
             .navigationTitle(existing == nil ? "Log an hour" : "Edit hour")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

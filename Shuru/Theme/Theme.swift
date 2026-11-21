@@ -154,16 +154,74 @@ struct PageScroll<Content: View>: View {
     @ViewBuilder var content: () -> Content
 
     var body: some View {
-        ScrollView {
-            VStack(spacing: 16) {
-                content()
+        GeometryReader { geo in
+            ScrollView {
+                VStack(spacing: 16) {
+                    content()
+                }
+                .padding(.horizontal, 16)
+                .padding(.top, 12)
+                .padding(.bottom, 120)
+                // Fill the screen, so tapping anywhere blank (even below the content) puts the keyboard away.
+                .frame(maxWidth: .infinity, minHeight: geo.size.height, alignment: .top)
+                .dismissesKeyboardOnBlankTap()
             }
-            .padding(.horizontal, 16)
-            .padding(.top, 12)
-            .padding(.bottom, 120)
+            .scrollDismissesKeyboard(.interactively)
         }
-        .scrollDismissesKeyboard(.interactively)
         .background(Theme.background)
+    }
+}
+
+/// Puts the keyboard away, wherever it is.
+@MainActor
+func dismissKeyboard() {
+    UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+}
+
+extension View {
+    /// Tapping blank space here puts the keyboard away. Buttons, rows and text boxes keep their own taps,
+    /// because they sit in front of this.
+    func dismissesKeyboardOnBlankTap() -> some View {
+        background {
+            Color.clear
+                .contentShape(Rectangle())
+                .onTapGesture { dismissKeyboard() }
+                .accessibilityHidden(true)
+        }
+    }
+}
+
+/// For forms (task editor, settings…): a tap on the blank list background, between sections,
+/// puts the keyboard away. Taps on rows, buttons and text boxes are left alone.
+final class KeyboardDismisser: NSObject, UIGestureRecognizerDelegate {
+    static let shared = KeyboardDismisser()
+    private var windows = Set<ObjectIdentifier>()
+
+    @MainActor
+    func install() {
+        for scene in UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }) {
+            for window in scene.windows where !windows.contains(ObjectIdentifier(window)) {
+                let tap = UITapGestureRecognizer(target: self, action: #selector(tapped(_:)))
+                tap.cancelsTouchesInView = false
+                tap.delaysTouchesBegan = false
+                tap.delaysTouchesEnded = false
+                tap.delegate = self
+                window.addGestureRecognizer(tap)
+                windows.insert(ObjectIdentifier(window))
+            }
+        }
+    }
+
+    @objc private func tapped(_ gesture: UITapGestureRecognizer) {
+        guard let window = gesture.view as? UIWindow else { return }
+        let hit = window.hitTest(gesture.location(in: window), with: nil)
+        if hit is UICollectionView || hit is UITableView {
+            window.endEditing(true)
+        }
+    }
+
+    func gestureRecognizer(_ g: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool {
+        true
     }
 }
 
