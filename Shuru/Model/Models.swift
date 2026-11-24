@@ -246,7 +246,8 @@ struct Completion: Codable, Identifiable, Hashable {
 enum GoalUnit: String, Codable, CaseIterable, Identifiable {
     case steps, hours
     var id: String { rawValue }
-    var name: String { self == .steps ? "Steps" : "Hours" }
+    /// Raw value stays "steps" for saved data; each task or routine counts once a day.
+    var name: String { self == .steps ? "Sessions" : "Hours" }
 }
 
 /// A goal for a month: a sentence, and optionally a minimum to hit.
@@ -475,6 +476,10 @@ struct AppData: Codable {
     var goals: [Goal] = []
     /// Months ("yyyy-MM") whose review you've opened at the end.
     var monthsReviewed: Set<String> = []
+    /// Item key ("t:…@day" / "r:…@day") -> when it comes back onto Now.
+    var snoozed: [String: Date] = [:]
+    /// Item keys skipped for that day.
+    var skipped: Set<String> = []
 }
 
 extension AppData {

@@ -80,6 +80,22 @@ enum Notifications {
         center.add(UNNotificationRequest(identifier: "shuru.break", content: content, trigger: trigger))
     }
 
+    static func snoozeEnds(key: String, at date: Date, title: String) {
+        let content = UNMutableNotificationContent()
+        content.title = "Back on Now"
+        content.body = title
+        content.sound = .default
+        let trigger = UNTimeIntervalNotificationTrigger(timeInterval: max(1, date.timeIntervalSinceNow), repeats: false)
+        let id = "shuru.snooze." + key
+        let center = UNUserNotificationCenter.current()
+        center.removePendingNotificationRequests(withIdentifiers: [id])
+        center.add(UNNotificationRequest(identifier: id, content: content, trigger: trigger))
+    }
+
+    static func cancelSnooze(key: String) {
+        UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: ["shuru.snooze." + key])
+    }
+
     static func cancelBreak() {
         UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: ["shuru.break"])
     }

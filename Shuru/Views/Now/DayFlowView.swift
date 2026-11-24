@@ -65,6 +65,14 @@ struct DayFlowColumn: View {
                         .buttonStyle(.borderless)
                         .accessibilityLabel("Start " + e.title)
                 }
+                if let key = e.restoreKey {
+                    Button(e.restoreLabel) { withAnimation { store.bringBack(key) } }
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(accent)
+                        .frame(minWidth: 44, minHeight: 44)
+                        .buttonStyle(.borderless)
+                        .accessibilityLabel(e.restoreLabel + " " + e.title)
+                }
             }
         }
         .accessibilityElement(children: .combine)
@@ -107,6 +115,7 @@ struct DayFlowColumn: View {
             // The first due step is the big text on Now; everything else gets a header.
             let isCurrent = i == 0 && !due.isEmpty
             let at = i >= due.count ? store.startsAt(item) : nil
+            let snoozed = i >= due.count && store.snoozedUntil(item) != nil
             let steps: [Step]
             var header: String = item.triggerLabel
             var symbol = "checkmark.circle"
@@ -125,9 +134,11 @@ struct DayFlowColumn: View {
             let from = isCurrent ? item.stepIndex + 1 : item.stepIndex
             if !isCurrent {
                 let progress: String? = item.stepCount > 1 ? "\(item.stepIndex + 1) of \(item.stepCount)" : nil
-                let meta = [at.map { "At " + $0 }, cue, progress].compactMap { $0 }.joined(separator: " · ")
+                let when = at.map { (snoozed ? "Snoozed until " : "At ") + $0 }
+                let meta = [when, cue, progress].compactMap { $0 }.joined(separator: " · ")
                 if item.kind == .task, at != nil { header = "Task" }
-                list.append(FlowEntry(id: "h-" + item.baseKey, title: header, meta: meta.isEmpty ? nil : meta, symbol: symbol, isHeader: true))
+                list.append(FlowEntry(id: "h-" + item.baseKey, title: header, meta: meta.isEmpty ? nil : meta, symbol: symbol,
+                                      isHeader: true, restoreKey: snoozed ? item.baseKey : nil))
             }
             if from < steps.count {
                 for j in from..<steps.count {
@@ -149,6 +160,10 @@ struct DayFlowColumn: View {
                                       color: store.type(s.typeID).color, dimmed: true))
             }
         }
+        for s in store.skippedToday() {
+            list.append(FlowEntry(id: "s-" + s.key, title: s.title, meta: "Skipped today", symbol: "forward",
+                                  isHeader: true, dimmed: true, restoreKey: s.key, restoreLabel: "Undo"))
+        }
         if list.count > maxRows && maxRows > 1 {
             let hidden = list.count - (maxRows - 1)
             list = Array(list.prefix(maxRows - 1))
@@ -159,12 +174,14 @@ struct DayFlowColumn: View {
 
     /// Done today, most recent first, right under the task.
     private func doneEntries() -> [FlowEntry] {
-        let completions: [Completion] = store.completions(on: Day.today).reversed()
-        var list: [FlowEntry] = completions.map { c in
-            var parts: [String] = [Day.clock(c.at), store.type(c.typeID).name]
-            if c.isRoutine && c.finishedWhole { parts.append("routine finished") }
-            if c.earnedToken { parts.append("+1 token") }
-            return FlowEntry(id: c.id.uuidString, title: c.title, meta: parts.joined(separator: " · "), done: true)
+        // One line per task or routine, however many of its steps were done.
+        let runs = store.runs(on: Day.today).sorted { $0.at > $1.at }
+        var list: [FlowEntry] = runs.map { r in
+            var parts: [String] = [Day.clock(r.at), r.isRoutine ? "Routine" : store.type(r.typeID).name]
+            if let steps = r.stepsText { parts.append(steps) }
+            if r.earnedToken { parts.append("+1 token") }
+            return FlowEntry(id: r.id, title: r.title, meta: parts.joined(separator: " · "),
+                             color: store.type(r.typeID).color, done: r.finished, dimmed: !r.finished)
         }
         if list.count > maxRows && maxRows > 1 {
             let hidden = list.count - (maxRows - 1)
@@ -192,6 +209,9 @@ struct FlowEntry: Identifiable {
     var done = false
     var dimmed = false
     var startRoutine: UUID? = nil
+    /// A snoozed or skipped item: tapping brings it back.
+    var restoreKey: String? = nil
+    var restoreLabel: String = "Bring back"
 }
 
 /// A row of the flowchart: a node on a vertical line, and content beside it.

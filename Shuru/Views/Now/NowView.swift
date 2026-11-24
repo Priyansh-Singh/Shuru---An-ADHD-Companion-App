@@ -326,7 +326,7 @@ struct NowView: View {
     private func flowHandles(height: CGFloat) -> some View {
         let queue = store.queue()
         let comingCount = max(0, queue.count - 1) + store.laterToday().count + store.cueRoutinesNotStarted().count
-        let doneCount = store.completions(on: Day.today).count
+        let doneCount = store.runs(on: Day.today).count
         VStack {
             Button {
                 setFlow(.upcoming)
@@ -653,6 +653,10 @@ struct NowView: View {
             store.notNow(item)
         case .pickOne:
             store.pickOne(excluding: item)
+        case .later(let until):
+            withAnimation(.easeInOut(duration: 0.35)) { store.snooze(item, until: until) }
+        case .skip:
+            withAnimation(.easeInOut(duration: 0.35)) { store.skipToday(item) }
         case .done:
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { finish(item, fromHold: true) }
         }

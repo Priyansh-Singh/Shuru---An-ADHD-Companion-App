@@ -220,16 +220,16 @@ struct WeekView: View {
     }
 
     private func totalsCard(done: [Completion]) -> some View {
-        let wholes = done.filter { $0.finishedWhole }
-        let routines = wholes.filter { $0.isRoutine }.count
-        let steps = done.count
+        // A routine or task counts once a day, however many steps it has.
+        let runs = store.runs(done)
+        let finished = runs.filter(\.finished)
+        let routines = finished.filter(\.isRoutine).count
         var byType: [String: Int] = [:]
-        for c in done { byType[c.typeID, default: 0] += 1 }
+        for r in runs { byType[r.typeID, default: 0] += 1 }
         let top = byType.sorted { $0.value > $1.value }.prefix(3)
         return Card {
             CardHeader("Totals")
-            totalRow("Things finished", "\(wholes.count)")
-            totalRow("Steps done", "\(steps)")
+            totalRow("Things finished", "\(finished.count)")
             totalRow("Routines completed", "\(routines)")
             if !top.isEmpty {
                 totalRow("Most time on", top.map { store.type($0.key).name }.joined(separator: ", "))

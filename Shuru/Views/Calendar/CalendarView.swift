@@ -160,7 +160,7 @@ struct CalendarView: View {
 
         routinesCard(day: today)
 
-        let done = store.completions(on: today)
+        let done = store.runs(on: today)
         if !done.isEmpty {
             Card {
                 Button {
@@ -180,7 +180,7 @@ struct CalendarView: View {
                 }
                 .buttonStyle(.plain)
                 if showDone {
-                    ForEach(done.reversed()) { c in DoneRow(completion: c) }
+                    ForEach(done.reversed()) { r in DoneRow(run: r) }
                 }
             }
         }
@@ -190,7 +190,7 @@ struct CalendarView: View {
 
     @ViewBuilder
     private var pastContent: some View {
-        let done = store.completions(on: selected)
+        let done = store.runs(on: selected)
         Card {
             CardHeader("Done that day") {
                 Text("\(done.count)").font(.system(size: 14)).foregroundStyle(.secondary)
@@ -202,7 +202,7 @@ struct CalendarView: View {
                     .padding(.horizontal, 16)
                     .padding(.vertical, 8)
             }
-            ForEach(done) { c in DoneRow(completion: c) }
+            ForEach(done) { r in DoneRow(run: r) }
         }
         let missed = store.data.tasks.filter { !$0.isRepeating && $0.date == selected && !$0.isDone(on: selected) }
         if !missed.isEmpty {
@@ -421,6 +421,7 @@ struct TaskRow: View {
 
     private func meta(type: TaskType) -> String {
         var parts: [String] = []
+        if store.isSkipped(task: task, on: day) { parts.append("Skipped today") }
         if highlighted { parts.append("Do this one") }
         if !task.isRepeating && task.date < day { parts.append("From " + Day.shortWeekdays[Day.weekday(task.date) - 1]) }
         if let t = task.timeLabel { parts.append(t) }
@@ -436,18 +437,25 @@ struct TaskRow: View {
 
 struct DoneRow: View {
     @EnvironmentObject var store: AppStore
-    let completion: Completion
+    let run: DoneRun
 
     var body: some View {
         HStack(spacing: 12) {
-            CheckCircle(done: true, tint: Theme.checkbox)
+            CheckCircle(done: run.finished, tint: Theme.checkbox)
                 .frame(width: 44)
-            Text(completion.title)
-                .font(.system(size: 16))
-                .strikethrough()
-                .foregroundStyle(.secondary)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(run.title)
+                    .font(.system(size: 16))
+                    .strikethrough(run.finished)
+                    .foregroundStyle(.secondary)
+                if let steps = run.stepsText {
+                    Text((run.isRoutine ? "Routine · " : "") + steps)
+                        .font(.system(size: 13))
+                        .foregroundStyle(.secondary)
+                }
+            }
             Spacer()
-            Text(Day.clock(completion.at))
+            Text(Day.clock(run.at))
                 .font(.system(size: 13).monospacedDigit())
                 .foregroundStyle(.secondary)
         }
@@ -504,7 +512,7 @@ struct WeekDayCard: View {
         let accent = Theme.accent(store.settings.palette)
         let isPast = day < today
         let titles: [String] = isPast
-            ? store.completions(on: day).map(\.title)
+            ? store.runs(on: day).map(\.title)
             : store.tasks(on: day, includeRollover: day == today).filter { !$0.isDone(on: day) }.map(\.title)
                 + store.routines(on: day).map(\.title)
         let summary = isPast

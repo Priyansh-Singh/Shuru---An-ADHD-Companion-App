@@ -283,7 +283,7 @@ struct GoalEditor: View {
                     } header: {
                         Text("Tasks and routines that move it")
                     } footer: {
-                        Text("You can also pick a goal when you make or edit a task. Each step you finish on these counts.")
+                        Text("You can also pick a goal when you make or edit a task. Each one you work on counts once that day.")
                     }
                 }
 
@@ -353,13 +353,13 @@ struct GoalEditor: View {
     }
 
     private var unitWord: String {
-        goal.unit == .steps ? (minimum == 1 ? "step" : "steps") : (minimum == 1 ? "hour" : "hours")
+        goal.unit == .steps ? (minimum == 1 ? "session" : "sessions") : (minimum == 1 ? "hour" : "hours")
     }
 
     private var minimumFooter: String {
         guard hasMinimum else { return "A floor, not a target. Hitting it means the month counted." }
         return goal.unit == .steps
-            ? "Every step you finish on a tagged task or routine counts as one."
+            ? "Each tagged task or routine you work on counts once that day, however many steps it has."
             : "Counts the time tagged steps take on Now, from when they come up until you finish them (up to 3 hours each). Rough, but honest."
     }
 
@@ -476,13 +476,14 @@ struct MonthReviewView: View {
 
     private func statsCard(done: [Completion], goals: [Goal]) -> some View {
         let ids = Set(goals.map(\.id))
-        let toward = done.filter { c in c.goalID.map { ids.contains($0) } ?? false }.count
+        let runs = store.runs(done)
+        let toward = runs.filter { r in r.goalID.map { ids.contains($0) } ?? false }.count
         let days = isCurrent ? Day.dayNumber(Day.today) : Day.daysIn(month: month)
         return Card {
             statRow("Days you showed up", "\(Set(done.map(\.day)).count) of \(days)")
-            statRow("Steps finished", "\(done.count)")
-            if !goals.isEmpty { statRow("Toward your goals", "\(toward)") }
-            statRow("Routines completed", "\(done.filter { $0.isRoutine && $0.finishedWhole }.count)")
+            statRow("Things finished", "\(runs.filter(\.finished).count)")
+            if !goals.isEmpty { statRow("Sessions toward goals", "\(toward)") }
+            statRow("Routines completed", "\(runs.filter { $0.isRoutine && $0.finished }.count)")
         }
     }
 
@@ -497,7 +498,7 @@ struct MonthReviewView: View {
     }
 
     private func goalCard(_ g: Goal, done: [Completion]) -> some View {
-        let mine = done.filter { $0.goalID == g.id }
+        let mine = store.runs(done.filter { $0.goalID == g.id })
         let groups = grouped(mine)
         let open = openThings(g)
         let p = store.progress(g)
@@ -623,7 +624,7 @@ struct MonthReviewView: View {
             .padding(.top, 4)
     }
 
-    private func grouped(_ items: [Completion]) -> [DoneGroup] {
+    private func grouped(_ items: [DoneRun]) -> [DoneGroup] {
         var order: [String] = []
         var counts: [String: Int] = [:]
         var last: [String: String] = [:]

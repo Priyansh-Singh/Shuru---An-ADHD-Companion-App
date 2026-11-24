@@ -45,6 +45,37 @@ struct NowItem: Identifiable, Equatable {
     var isChain: Bool { stepCount > 1 }
 }
 
+/// Everything done on one task or routine in a day, counted as one.
+struct DoneRun: Identifiable {
+    let id: String
+    let refID: UUID?
+    let isRoutine: Bool
+    let title: String
+    let typeID: String
+    let day: String
+    let at: Date
+    let stepsDone: Int
+    let stepCount: Int?
+    let finished: Bool
+    let earnedToken: Bool
+    let goalID: UUID?
+    let seconds: Int
+
+    /// "4 steps" when finished, "2 of 4 steps" when not, nil for a single step.
+    var stepsText: String? {
+        let total = max(stepCount ?? stepsDone, stepsDone)
+        if finished { return total > 1 ? "\(total) steps" : nil }
+        return "\(stepsDone) of \(total) steps"
+    }
+}
+
+struct SkippedThing: Identifiable {
+    let key: String
+    let title: String
+    let isRoutine: Bool
+    var id: String { key }
+}
+
 struct CompletionResult {
     let label: String
     let whole: Bool
@@ -196,6 +227,13 @@ final class AppStore: ObservableObject {
     func becameActive() {
         normalizeTokens()
         if let b = data.breakUntil, Date().timeIntervalSince(b) > 2 * 3600 { data.breakUntil = nil }
+        let cutoff = Day.add(-14, to: Day.today)
+        if data.skipped.contains(where: { String($0.split(separator: "@").last ?? "") < cutoff }) {
+            data.skipped = data.skipped.filter { String($0.split(separator: "@").last ?? "") >= cutoff }
+        }
+        if data.snoozed.values.contains(where: { Date().timeIntervalSince($0) > 86400 }) {
+            data.snoozed = data.snoozed.filter { Date().timeIntervalSince($0.value) <= 86400 }
+        }
         let today = "@" + Day.today
         if data.primed.contains(where: { !$0.contains(today) }) {
             data.primed = data.primed.filter { $0.contains(today) }
@@ -498,6 +536,7 @@ final class AppStore: ObservableObject {
 
     /// "6 pm" for something scheduled at a time.
     func startsAt(_ item: NowItem) -> String? {
+        if let s = snoozedUntil(item) { return Day.clock(s) }
         if item.kind == .routine, let r = data.routines.first(where: { $0.id == item.refID }), r.trigger.kind == .time {
             return Day.clock(hour: r.trigger.hour, minute: r.trigger.minute)
         }
@@ -516,6 +555,12 @@ final class AppStore: ObservableObject {
         let nowMinutes = Day.hour(of: Date()) * 60 + Day.calendar.component(.minute, from: Date())
         // A day other than today: nothing is "later", it's all just the plan.
         let isToday = day == Day.today
+        let now = Date()
+        /// A snooze for this item today: still waiting (later), or just ended (back in line at that time).
+        func snoozeState(_ base: String) -> (later: Bool, minutes: Int)? {
+            guard isToday, let until = data.snoozed[base] else { return nil }
+            return (until > now, Day.hour(of: until) * 60 + Day.calendar.component(.minute, from: until))
+        }
         var entries: [(item: NowItem, bucket: Int, minutes: Int, order: Int)] = []
         var order = 0
 
@@ -525,9 +570,12 @@ final class AppStore: ObservableObject {
             guard idx < r.steps.count else { continue }
             let item = NowItem(kind: .routine, refID: r.id, day: day, stepIndex: idx, stepCount: r.steps.count,
                                step: r.steps[idx], triggerLabel: r.hasName ? r.title : r.trigger.label, rolledFrom: nil)
-            if r.trigger.isCue {
-                // Waits for its cue: arriving somewhere, a Start tap, or a Shortcut.
-                guard let at = data.started[base] else { continue }
+            if data.skipped.contains(base) { continue }
+            // A cue routine waits for its cue: arriving somewhere, a Start tap, or a Shortcut.
+            if r.trigger.isCue && data.started[base] == nil { continue }
+            if let s = snoozeState(base) {
+                entries.append((item, s.later ? 2 : 0, s.minutes, order))
+            } else if r.trigger.isCue, let at = data.started[base] {
                 let c = Day.calendar.dateComponents([.hour, .minute], from: at)
                 entries.append((item, 0, (c.hour ?? 0) * 60 + (c.minute ?? 0), order))
             } else {
@@ -540,7 +588,7 @@ final class AppStore: ObservableObject {
         for t in tasks(on: day) where !t.isDone(on: day) && !t.steps.isEmpty {
             let base = "t:" + t.id.uuidString + "@" + day
             let idx = data.progress[base] ?? 0
-            guard idx < t.steps.count else { continue }
+            guard idx < t.steps.count, !data.skipped.contains(base) else { continue }
             let rolled = (!t.isRepeating && t.date < day) ? t.date : nil
             var label = t.timeLabel ?? "Today"
             if let rolled { label = "From " + Day.shortWeekdays[Day.weekday(rolled) - 1] }
@@ -550,7 +598,11 @@ final class AppStore: ObservableObject {
             // Rolled over from an earlier day: it's overdue, whatever time it had.
             let bucket: Int
             if let minutes, rolled == nil { bucket = isToday && minutes > nowMinutes ? 2 : 0 } else { bucket = minutes == nil ? 1 : 0 }
-            entries.append((item, bucket, minutes ?? 0, order))
+            if let s = snoozeState(base) {
+                entries.append((item, s.later ? 2 : 0, s.minutes, order))
+            } else {
+                entries.append((item, bucket, minutes ?? 0, order))
+            }
             order += 1
         }
 
@@ -616,6 +668,7 @@ final class AppStore: ObservableObject {
         if whole {
             data.notNow[item.day]?.removeAll { $0 == base }
             if data.pinned[item.day] == base { data.pinned[item.day] = nil }
+            if data.snoozed.removeValue(forKey: base) != nil { Notifications.cancelSnooze(key: base) }
         }
         if data.settings.hours && data.settings.autoLog {
             autoLog(typeID: item.step.typeID, note: item.step.title, itemID: item.id)
@@ -650,6 +703,89 @@ final class AppStore: ObservableObject {
         data.startedAt[item.id] = nil
         Notifications.cancelLimits()
     }
+
+    // MARK: Later and skip
+
+    /// Takes it off Now until a time; it waits in Coming up and comes back on its own.
+    func snooze(_ item: NowItem, until: Date) {
+        let key = item.baseKey
+        data.snoozed[key] = until
+        data.notNow[item.day]?.removeAll { $0 == key }
+        if data.pinned[item.day] == key { data.pinned[item.day] = nil }
+        if timer?.itemID == item.id { stopTimer() }
+        Notifications.snoozeEnds(key: key, at: until, title: displayTitle(item))
+        banner = "Back at " + Day.clock(until)
+    }
+
+    /// Missed it, or not today. Not counted as done; one-off tasks come back tomorrow.
+    func skipToday(_ item: NowItem) {
+        let key = item.baseKey
+        data.skipped.insert(key)
+        data.snoozed[key] = nil
+        data.notNow[item.day]?.removeAll { $0 == key }
+        if data.pinned[item.day] == key { data.pinned[item.day] = nil }
+        if timer?.itemID == item.id { stopTimer() }
+        Notifications.cancelSnooze(key: key)
+        banner = "Skipped for today"
+    }
+
+    /// Undoes a snooze or a skip: straight back in line.
+    func bringBack(_ key: String) {
+        data.snoozed[key] = nil
+        data.skipped.remove(key)
+        Notifications.cancelSnooze(key: key)
+    }
+
+    func snoozedUntil(_ item: NowItem) -> Date? {
+        guard let until = data.snoozed[item.baseKey], until > Date() else { return nil }
+        return until
+    }
+
+    func isSkipped(task: PlannedTask, on day: String) -> Bool {
+        data.skipped.contains("t:" + task.id.uuidString + "@" + day)
+    }
+
+    func skippedToday() -> [SkippedThing] {
+        let suffix = "@" + Day.today
+        return data.skipped.filter { $0.hasSuffix(suffix) }.sorted().compactMap { key in
+            let id = UUID(uuidString: String(key.dropFirst(2).prefix(36)))
+            if key.hasPrefix("r:"), let r = data.routines.first(where: { $0.id == id }) {
+                return SkippedThing(key: key, title: r.title, isRoutine: true)
+            }
+            if key.hasPrefix("t:"), let t = data.tasks.first(where: { $0.id == id }) {
+                return SkippedThing(key: key, title: t.title, isRoutine: false)
+            }
+            return nil
+        }
+    }
+
+    // MARK: Done, grouped
+
+    /// Steps of the same task or routine on the same day, counted as one.
+    func runs(_ completions: [Completion]) -> [DoneRun] {
+        var order: [String] = []
+        var groups: [String: [Completion]] = [:]
+        for c in completions.sorted(by: { $0.at < $1.at }) {
+            let key = (c.refID?.uuidString ?? c.id.uuidString) + "@" + c.day
+            if groups[key] == nil { order.append(key) }
+            groups[key, default: []].append(c)
+        }
+        return order.compactMap { key -> DoneRun? in
+            guard let cs = groups[key], let first = cs.first, let last = cs.last else { return nil }
+            let routine = first.isRoutine ? data.routines.first(where: { $0.id == first.refID }) : nil
+            let task = first.isRoutine ? nil : data.tasks.first(where: { $0.id == first.refID })
+            return DoneRun(id: key, refID: first.refID, isRoutine: first.isRoutine,
+                           title: routine?.title ?? task?.title ?? first.title,
+                           typeID: task?.typeID ?? first.typeID, day: first.day, at: last.at,
+                           stepsDone: cs.count, stepCount: routine?.steps.count ?? task?.steps.count,
+                           finished: cs.contains { $0.finishedWhole },
+                           earnedToken: cs.contains { $0.earnedToken },
+                           goalID: cs.compactMap(\.goalID).first,
+                           seconds: cs.compactMap(\.seconds).reduce(0, +))
+        }
+    }
+
+    func runs(on day: String) -> [DoneRun] { runs(completions(on: day)) }
 
     func pushes(_ item: NowItem) -> Int { data.pushes[item.refID.uuidString] ?? 0 }
 
@@ -847,9 +983,10 @@ final class AppStore: ObservableObject {
     /// Steps finished and hours timed toward a goal in its month.
     func progress(_ g: Goal) -> (steps: Int, hours: Double) {
         let done = data.completions.filter { $0.goalID == g.id && Day.monthKey($0.day) == g.month }
+        let sessions = runs(done).count
         // Time on Now counts from when a step comes up, so cap each one to keep a forgotten task from inflating it.
         let seconds = done.compactMap(\.seconds).map { Swift.min($0, 3 * 3600) }.reduce(0, +)
-        return (done.count, Double(seconds) / 3600)
+        return (sessions, Double(seconds) / 3600)
     }
 
     /// 0...1 toward the minimum, if there is one.
@@ -865,9 +1002,9 @@ final class AppStore: ObservableObject {
         let p = progress(g)
         let have = g.unit == .steps ? "\(p.steps)" : String(format: "%.1f", p.hours)
         guard let min = g.minimum, min > 0 else {
-            return g.unit == .steps ? "\(p.steps) step\(p.steps == 1 ? "" : "s") so far" : have + " h so far"
+            return g.unit == .steps ? "\(p.steps) session\(p.steps == 1 ? "" : "s") so far" : have + " h so far"
         }
-        let unitWord = g.unit == .steps ? (min == 1 ? "step" : "steps") : "h"
+        let unitWord = g.unit == .steps ? (min == 1 ? "session" : "sessions") : "h"
         var text = have + " of \(min) " + unitWord
         let value = g.unit == .steps ? Double(p.steps) : p.hours
         if value >= Double(min) { return text + " · minimum reached" }
